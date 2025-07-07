@@ -1,0 +1,210 @@
+[build-system]
+requires        = [ "hatchling>=1.27.0",]
+build-backend   = "hatchling.build"
+
+[project]
+name            = "jobx"
+version         = "0.1.0"
+description     = "A job scraper for LinkedIn and Indeed."
+readme          = "README.md"
+requires-python = ">=3.10"
+authors         = [{name = "Michelle Pellon", email = "mgracepellon@gmail.com"}]
+keywords        = ["job-scraper", "linkedin", "indeed"]
+classifiers     = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Operating System :: OS Independent",
+]
+
+# Runtime dependencies
+dependencies = [
+    "requests>=2.32.0",
+    "beautifulsoup4>=4.13.0",
+    "pandas>=2.2.0",
+    "numpy>=1.24.0",
+    "pydantic>=2.5.0",
+    "tls-client>=1.0.0",
+    "markdownify>=1.1.0",
+    "regex>=2024.7.0"
+]
+
+# Extra (optional) dependency groups
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.6.0",
+    "mypy>=1.8.0",
+    "black>=24.0.0",
+    "pytest>=8.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-httpx>=0.30.0",
+    "hypothesis>=6.100.0",
+    "bandit>=1.7.0",
+    "safety>=3.0.0",
+    "pre-commit>=3.6.0",
+    "structlog>=24.0.0"
+]
+testing = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-httpx>=0.30.0",
+    "hypothesis>=6.100.0"
+]
+docs = [
+    "mkdocs>=1.5.0",
+    "mkdocs-material>=9.5.0",
+    "mkdocstrings[python]>=0.24.0"
+]
+security = [
+    "bandit>=1.7.0",
+    "safety>=3.0.0"
+]
+
+# PyPI metadata helpers
+[project.urls]
+Homepage    = "https://github.com/michellepellon/jobx"
+Issues      = "https://github.com/michellepellon/jobx/issues"
+Changelog   = "https://github.com/michellepellon/jobx/releases"
+
+# Console-script entry points
+#[project.scripts]
+#jobx = "jobx.cli:main"
+
+# Hatch configuration
+[tool.hatch.version]
+path = "jobx/__init__.py"
+
+[tool.hatch.envs.default]   # `hatch run` convenience
+type = "virtual"
+dependencies = ["black", "ruff", "pytest"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/README.md", "/CHANGELOG.md", "/pyproject.toml"]
+
+# Code Quality and Tooling
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # pyflakes
+    "I",     # isort
+    "B",     # flake8-bugbear
+    "C4",    # flake8-comprehensions
+    "D",     # pydocstyle
+    "UP",    # pyupgrade
+    "RUF",   # Ruff-specific rules
+    "S",     # bandit security
+    "T20",   # flake8-print
+    "SIM",   # flake8-simplify
+    "PTH",   # flake8-use-pathlib
+]
+ignore = [
+    "D100",  # Missing docstring in public module
+    "D104",  # Missing docstring in public package
+    "S101",  # Use of assert
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["D", "S101"]  # Allow missing docstrings and asserts in tests
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.black]
+line-length          = 120
+target-version       = ["py310"]
+skip-string-normalization = true
+
+[tool.isort]
+profile      = "black"
+line_length  = 120
+src_paths    = ["src", "tests"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_any_generics = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+show_error_codes = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = [
+    "tls_client.*",
+    "regex.*",
+    "markdownify.*",
+]
+ignore_missing_imports = true
+
+[tool.coverage.run]
+branch = true
+source = ["jobx"]
+omit = [
+    "tests/*",
+    "*/tests/*",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+fail_under = 90
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
+
+[tool.pytest.ini_options]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--cov=jobx",
+    "--cov-report=term-missing",
+    "--cov-report=xml",
+    "--cov-report=html",
+    "--cov-fail-under=90",
+]
+testpaths = ["tests"]
+minversion = "8.0"
+markers = [
+    "integration: marks tests as integration tests (deselect with '-m not integration')",
+    "slow: marks tests as slow (deselect with '-m not slow')",
+]
+
+# Release Automation
+[tool.bumpver]
+current_version  = "0.1.0"
+version_pattern  = "MAJOR.MINOR.PATCH"
+commit           = true     # create “chore: bump version” commit
+tag              = true     # create “v0.1.0” Git tag
+
+# Security Tools
+[tool.bandit]
+skips = ["B101", "B601"]
+
+[tool.bandit.assert_used]
+skips = ["*_test.py", "*/test_*.py"]
