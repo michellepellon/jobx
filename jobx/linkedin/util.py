@@ -6,6 +6,8 @@ This module contains utility functions specific to LinkedIn job scraping,
 including job type parsing, location processing, and remote job detection.
 """
 
+from typing import Optional, List
+
 from bs4 import BeautifulSoup
 
 from jobx.model import JobType
@@ -23,7 +25,7 @@ def job_type_code(job_type_enum: JobType) -> str:
     }.get(job_type_enum, "")
 
 
-def parse_job_type(soup_job_type: BeautifulSoup) -> list[JobType] | None:
+def parse_job_type(soup_job_type: BeautifulSoup) -> Optional[List[JobType]]:
     """Gets the job type from job page.
 
     :param soup_job_type:
@@ -51,7 +53,7 @@ def parse_job_type(soup_job_type: BeautifulSoup) -> list[JobType] | None:
     return []
 
 
-def parse_job_level(soup_job_level: BeautifulSoup) -> str | None:
+def parse_job_level(soup_job_level: BeautifulSoup) -> Optional[str]:
     """Gets the job level from job page.
 
     :param soup_job_level:
@@ -74,7 +76,7 @@ def parse_job_level(soup_job_level: BeautifulSoup) -> str | None:
     return job_level
 
 
-def parse_company_industry(soup_industry: BeautifulSoup) -> str | None:
+def parse_company_industry(soup_industry: BeautifulSoup) -> Optional[str]:
     """Gets the company industry from job page.
 
     :param soup_industry:

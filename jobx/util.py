@@ -18,7 +18,7 @@ from collections.abc import Generator, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from itertools import cycle
-from typing import Any
+from typing import Any, Union, Optional, List, Dict
 
 import numpy as np
 import requests
@@ -42,7 +42,7 @@ MIN_SALARY_LIMIT = 1000
 MAX_SALARY_LIMIT = 700000
 
 
-@dataclass(slots=True, frozen=True)
+@dataclass(frozen=True)
 class LogConfig:
     """Configuration for logging setup."""
 
@@ -86,7 +86,7 @@ class JSONFormatter(logging.Formatter):
         return json.dumps(log_data)
 
 
-def create_logger(name: str, use_json: bool | None = None) -> logging.Logger:
+def create_logger(name: str, use_json: Optional[bool] = None) -> logging.Logger:
     """Create a structured logger with optional JSON output.
 
     Args:
@@ -141,9 +141,9 @@ def log_with_context(logger: logging.Logger, level: int, message: str, **kwargs:
 class RotatingProxySession:
     """Base class for rotating proxy sessions."""
 
-    proxy_cycle: Iterator[dict[str, str]] | None
+    proxy_cycle: Optional[Iterator[Dict[str, str]]]
 
-    def __init__(self, proxies: list[str] | str | None = None) -> None:
+    def __init__(self, proxies: Union[List[str], str, None] = None) -> None:
         """Initialize RotatingProxySession with optional proxies."""
         if isinstance(proxies, str):
             self.proxy_cycle = cycle([self.format_proxy(proxies)])
@@ -169,7 +169,7 @@ class RotatingProxySession:
 class RequestsRotating(RotatingProxySession, requests.Session):
     """Requests session with rotating proxy support."""
 
-    def __init__(self, proxies: list[str] | str | None = None, has_retry: bool = False,
+    def __init__(self, proxies: Union[List[str], str, None] = None, has_retry: bool = False,
                  delay: int = 1, clear_cookies: bool = False) -> None:
         """Initialize RequestsRotating session."""
         RotatingProxySession.__init__(self, proxies=proxies)
@@ -209,7 +209,7 @@ class RequestsRotating(RotatingProxySession, requests.Session):
 class TLSRotating(RotatingProxySession, tls_client.Session):  # type: ignore[misc]
     """TLS client session with rotating proxy support."""
 
-    def __init__(self, proxies: list[str] | str | None = None) -> None:
+    def __init__(self, proxies: Union[List[str], str, None] = None) -> None:
         """Initialize TLSRotating session."""
         RotatingProxySession.__init__(self, proxies=proxies)
         tls_client.Session.__init__(self, random_tls_extension_order=True)
@@ -229,18 +229,18 @@ class TLSRotating(RotatingProxySession, tls_client.Session):  # type: ignore[mis
 
 def create_session(
     *,
-    proxies: list[str] | str | None = None,
-    ca_cert: str | None = None,
+    proxies: Union[List[str], str, None] = None,
+    ca_cert: Optional[str] = None,
     is_tls: bool = True,
     has_retry: bool = False,
     delay: int = 1,
     clear_cookies: bool = False,
-) -> requests.Session | TLSRotating:
+) -> Union[requests.Session, TLSRotating]:
     """Creates a requests session with optional tls, proxy, and retry settings.
 
     :return: A session object.
     """
-    session: requests.Session | TLSRotating
+    session: Union[requests.Session, TLSRotating]
     if is_tls:
         session = TLSRotating(proxies=proxies)
     else:
@@ -260,13 +260,13 @@ def create_session(
 @contextmanager
 def managed_session(
     *,
-    proxies: list[str] | str | None = None,
-    ca_cert: str | None = None,
+    proxies: Union[List[str], str, None] = None,
+    ca_cert: Optional[str] = None,
     is_tls: bool = True,
     has_retry: bool = False,
     delay: int = 1,
     clear_cookies: bool = False,
-) -> Generator[requests.Session | TLSRotating, None, None]:
+) -> Generator[Union[requests.Session, TLSRotating], None, None]:
     """Context manager for HTTP sessions with proper cleanup.
 
     Args:
@@ -315,7 +315,7 @@ def managed_session(
 @contextmanager
 def handle_scraping_errors(
     operation: str,
-    site: str | None = None,
+    site: Optional[str] = None,
     **context_data: Any
 ) -> Generator[None, None, None]:
     """Context manager for handling scraping operation errors.
@@ -348,7 +348,7 @@ def handle_scraping_errors(
         raise
 
 
-def set_logger_level(verbose: int | None) -> None:
+def set_logger_level(verbose: Optional[int]) -> None:
     """Adjusts the logger's level. This function allows the logging level to be changed at runtime.
 
     Parameters:
@@ -371,7 +371,7 @@ def set_logger_level(verbose: int | None) -> None:
         raise ValueError(f"Invalid log level: {level_name}")
 
 
-def markdown_converter(description_html: str | None) -> str | None:
+def markdown_converter(description_html: Optional[str]) -> Optional[str]:
     """Convert HTML description to markdown format."""
     if description_html is None:
         return None
@@ -379,7 +379,7 @@ def markdown_converter(description_html: str | None) -> str | None:
     return str(markdown).strip()
 
 
-def extract_emails_from_text(text: str) -> list[str] | None:
+def extract_emails_from_text(text: str) -> Optional[List[str]]:
     """Extract email addresses from text using regex."""
     if not text:
         return None
@@ -387,7 +387,7 @@ def extract_emails_from_text(text: str) -> list[str] | None:
     return email_regex.findall(text)
 
 
-def parse_job_type_enum(job_type_str: str | None) -> JobType | None:
+def parse_job_type_enum(job_type_str: Optional[str]) -> Optional[JobType]:
     """Given a string, returns the corresponding JobType enum member if a match is found.
 
     Returns None if no match is found or if job_type_str is None.
@@ -402,7 +402,7 @@ def parse_job_type_enum(job_type_str: str | None) -> JobType | None:
     return None
 
 
-def get_enum_from_job_type(job_type_str: str) -> JobType | None:
+def get_enum_from_job_type(job_type_str: str) -> Optional[JobType]:
     """Deprecated: Use parse_job_type_enum instead.
 
     Given a string, returns the corresponding JobType enum member if a match is found.
@@ -436,13 +436,13 @@ def remove_attributes(tag: Any) -> Any:
 
 
 def extract_salary(
-    salary_str: str | None,
+    salary_str: Optional[str],
     lower_limit: float = MIN_SALARY_LIMIT,
     upper_limit: float = MAX_SALARY_LIMIT,
     hourly_threshold: float = HOURLY_THRESHOLD,
     monthly_threshold: float = MONTHLY_THRESHOLD,
     enforce_annual_salary: bool = False,
-) -> tuple[str | None, float | None, float | None, str | None]:
+) -> tuple[Optional[str], Optional[float], Optional[float], Optional[str]]:
     """Extract salary information from a string.
 
     Returns the salary interval, min and max salary values, and currency.

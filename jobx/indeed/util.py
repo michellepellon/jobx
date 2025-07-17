@@ -6,7 +6,7 @@ This module contains utility functions specific to Indeed job scraping,
 including compensation parsing, job type extraction, and remote job detection.
 """
 
-from typing import Any
+from typing import Any, Optional
 
 from jobx.model import Compensation, CompensationInterval, JobType
 from jobx.util import parse_job_type_enum
@@ -27,7 +27,7 @@ def get_job_type(attributes: list[dict[str, Any]]) -> list[JobType]:
     return job_types
 
 
-def get_compensation(compensation: dict[str, Any]) -> Compensation | None:
+def get_compensation(compensation: dict[str, Any]) -> Optional[Compensation]:
     """Parses the job to get compensation.
 
     :param compensation:

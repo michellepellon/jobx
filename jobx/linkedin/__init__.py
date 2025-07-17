@@ -13,7 +13,7 @@ import math
 import secrets
 import time
 from datetime import datetime
-from typing import Any
+from typing import Any, Union, Optional, List
 from urllib.parse import unquote, urlparse, urlunparse
 
 import regex as re
@@ -55,11 +55,11 @@ class LinkedIn(Scraper):
     jobs_per_page = 25
 
     def __init__(
-        self, proxies: list[str] | str | None = None, ca_cert: str | None = None
+        self, proxies: Union[List[str], str, None] = None, ca_cert: Optional[str] = None
     ):
         """Initializes LinkedInScraper with the LinkedIn job search url."""
         # Convert single proxy string to list for base class compatibility
-        proxy_list: list[str] | None = None
+        proxy_list: Optional[List[str]] = None
         if isinstance(proxies, str):
             proxy_list = [proxies]
         elif isinstance(proxies, list):
@@ -74,7 +74,7 @@ class LinkedIn(Scraper):
             clear_cookies=True,
         )
         self.session.headers.update(headers)
-        self.scraper_input: ScraperInput | None = None
+        self.scraper_input: Optional[ScraperInput] = None
         self.country = "worldwide"
         self.job_url_direct_regex = re.compile(r'(?<=\?url=)[^"]+')
 
@@ -185,7 +185,7 @@ class LinkedIn(Scraper):
 
     def _process_job(
         self, job_card: Tag, job_id: str, full_descr: bool
-    ) -> JobPost | None:
+    ) -> Optional[JobPost]:
         salary_tag = job_card.find("span", class_="job-search-card__salary-info")
 
         compensation = description = None
@@ -215,7 +215,7 @@ class LinkedIn(Scraper):
         company = company_a_tag.get_text(strip=True) if company_a_tag and hasattr(company_a_tag, 'get_text') else "N/A"
 
         metadata_card = job_card.find("div", class_="base-search-card__metadata")
-        metadata_card_tag: Tag | None = metadata_card if isinstance(metadata_card, Tag) else None
+        metadata_card_tag: Optional[Tag] = metadata_card if isinstance(metadata_card, Tag) else None
         location = self._get_location(metadata_card_tag)
 
         datetime_tag = (
@@ -313,7 +313,7 @@ class LinkedIn(Scraper):
             "job_function": job_function,
         }
 
-    def _get_location(self, metadata_card: Tag | None) -> Location:
+    def _get_location(self, metadata_card: Optional[Tag]) -> Location:
         """Extracts the location data from the job metadata card.
 
         :param metadata_card
@@ -339,7 +339,7 @@ class LinkedIn(Scraper):
                 location = Location(city=city, state=state, country=country)
         return location
 
-    def _parse_job_url_direct(self, soup: BeautifulSoup) -> str | None:
+    def _parse_job_url_direct(self, soup: BeautifulSoup) -> Optional[str]:
         """Gets the job url direct from job page.
 
         :param soup:

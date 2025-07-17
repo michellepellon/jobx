@@ -7,7 +7,7 @@ name            = "jobx"
 version         = "0.1.0"
 description     = "A job scraper for LinkedIn and Indeed."
 readme          = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.9"
 authors         = [{name = "Michelle Pellon", email = "mgracepellon@gmail.com"}]
 keywords        = ["job-scraper", "linkedin", "indeed"]
 classifiers     = [
@@ -68,8 +68,8 @@ Issues      = "https://github.com/michellepellon/jobx/issues"
 Changelog   = "https://github.com/michellepellon/jobx/releases"
 
 # Console-script entry points
-#[project.scripts]
-#jobx = "jobx.cli:main"
+[project.scripts]
+jobx = "jobx.cli:main"
 
 # Hatch configuration
 [tool.hatch.version]
@@ -79,12 +79,15 @@ path = "jobx/__init__.py"
 type = "virtual"
 dependencies = ["black", "ruff", "pytest"]
 
+[tool.hatch.build.targets.wheel]
+packages = ["jobx"]
+
 [tool.hatch.build.targets.sdist]
-include = ["/src", "/README.md", "/CHANGELOG.md", "/pyproject.toml"]
+include = ["/jobx", "/README.md", "/pyproject.toml"]
 
 # Code Quality and Tooling
 [tool.ruff]
-target-version = "py310"
+target-version = "py39"
 line-length = 120
 
 [tool.ruff.lint]
@@ -123,7 +126,7 @@ line-ending = "auto"
 
 [tool.black]
 line-length          = 120
-target-version       = ["py310"]
+target-version       = ["py39"]
 skip-string-normalization = true
 
 [tool.isort]
@@ -132,7 +135,7 @@ line_length  = 120
 src_paths    = ["src", "tests"]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.9"
 strict = true
 warn_return_any = true
 warn_unused_configs = true

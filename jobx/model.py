@@ -11,6 +11,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from datetime import date
 from enum import Enum
+from typing import Union, Optional, List
 
 from pydantic import BaseModel
 
@@ -103,9 +104,9 @@ class Country(Enum):
 
 class Location(BaseModel):
     """Represents a job location with city, state, and country."""
-    country: Country | str | None = None
-    city: str | None = None
-    state: str | None = None
+    country: Union[Country, str, None] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
 
     def display_location(self) -> str:
         """Format location for display."""
@@ -136,7 +137,7 @@ class CompensationInterval(Enum):
     HOURLY = "hourly"
 
     @classmethod
-    def get_interval(cls, pay_period: str) -> str | None:
+    def get_interval(cls, pay_period: str) -> Optional[str]:
         """Get interval value from pay period string."""
         interval_mapping = {
             "YEAR": cls.YEARLY,
@@ -150,10 +151,10 @@ class CompensationInterval(Enum):
 
 class Compensation(BaseModel):
     """Represents job compensation information."""
-    interval: CompensationInterval | None = None
-    min_amount: float | None = None
-    max_amount: float | None = None
-    currency: str | None = "USD"
+    interval: Optional[CompensationInterval] = None
+    min_amount: Optional[float] = None
+    max_amount: Optional[float] = None
+    currency: Optional[str] = "USD"
 
 
 class DescriptionFormat(Enum):
@@ -164,45 +165,45 @@ class DescriptionFormat(Enum):
 
 class JobPost(BaseModel):
     """Represents a job posting with all relevant information."""
-    id: str | None = None
+    id: Optional[str] = None
     title: str
-    company_name: str | None
+    company_name: Optional[str]
     job_url: str
-    job_url_direct: str | None = None
-    location: Location | None
+    job_url_direct: Optional[str] = None
+    location: Optional[Location]
 
-    description: str | None = None
-    company_url: str | None = None
-    company_url_direct: str | None = None
+    description: Optional[str] = None
+    company_url: Optional[str] = None
+    company_url_direct: Optional[str] = None
 
-    job_type: list[JobType] | None = None
-    compensation: Compensation | None = None
-    date_posted: date | None = None
-    emails: list[str] | None = None
-    is_remote: bool | None = None
-    listing_type: str | None = None
+    job_type: Optional[List[JobType]] = None
+    compensation: Optional[Compensation] = None
+    date_posted: Optional[date] = None
+    emails: Optional[List[str]] = None
+    is_remote: Optional[bool] = None
+    listing_type: Optional[str] = None
 
     # LinkedIn specific
-    job_level: str | None = None
+    job_level: Optional[str] = None
 
     # LinkedIn and Indeed specific
-    company_industry: str | None = None
+    company_industry: Optional[str] = None
 
     # Indeed specific
-    company_addresses: str | None = None
-    company_num_employees: str | None = None
-    company_revenue: str | None = None
-    company_description: str | None = None
-    company_logo: str | None = None
-    banner_photo_url: str | None = None
+    company_addresses: Optional[str] = None
+    company_num_employees: Optional[str] = None
+    company_revenue: Optional[str] = None
+    company_description: Optional[str] = None
+    company_logo: Optional[str] = None
+    banner_photo_url: Optional[str] = None
 
     # LinkedIn only atm
-    job_function: str | None = None
+    job_function: Optional[str] = None
 
 
 class JobResponse(BaseModel):
     """Response containing a list of job postings."""
-    jobs: list[JobPost] = []
+    jobs: List[JobPost] = []
 
 
 class Site(Enum):
@@ -219,29 +220,29 @@ class SalarySource(Enum):
 
 class ScraperInput(BaseModel):
     """Input parameters for job scraping operations."""
-    site_type: list[Site]
-    search_term: str | None = None
-    google_search_term: str | None = None
+    site_type: List[Site]
+    search_term: Optional[str] = None
+    google_search_term: Optional[str] = None
 
-    location: str | None = None
-    country: Country | None = Country.USA
-    distance: int | None = None
+    location: Optional[str] = None
+    country: Optional[Country] = Country.USA
+    distance: Optional[int] = None
     is_remote: bool = False
-    job_type: JobType | None = None
-    easy_apply: bool | None = None
+    job_type: Optional[JobType] = None
+    easy_apply: Optional[bool] = None
     offset: int = 0
     linkedin_fetch_description: bool = False
-    linkedin_company_ids: list[int] | None = None
-    description_format: DescriptionFormat | None = DescriptionFormat.MARKDOWN
+    linkedin_company_ids: Optional[List[int]] = None
+    description_format: Optional[DescriptionFormat] = DescriptionFormat.MARKDOWN
 
     results_wanted: int = 15
-    hours_old: int | None = None
+    hours_old: Optional[int] = None
 
 
 class Scraper(ABC):
     """Abstract base class for job scrapers."""
     def __init__(
-        self, site: Site, proxies: list[str] | None = None, ca_cert: str | None = None
+        self, site: Site, proxies: Optional[List[str]] = None, ca_cert: Optional[str] = None
     ):
         """Initialize scraper with site and optional proxy configuration."""
         self.site = site

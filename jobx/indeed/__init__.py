@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import math
 from datetime import datetime
-from typing import Any
+from typing import Any, Union, Optional, List, Dict, Tuple
 
 from jobx.indeed.constant import api_headers, job_search_query
 from jobx.indeed.util import get_compensation, get_job_type
@@ -39,11 +39,11 @@ log = create_logger("Indeed")
 class Indeed(Scraper):
     """Indeed job scraper implementation."""
     def __init__(
-        self, proxies: list[str] | str | None = None, ca_cert: str | None = None
+        self, proxies: Union[List[str], str, None] = None, ca_cert: Optional[str] = None
     ):
         """Initializes IndeedScraper with the Indeed API url."""
         # Convert single proxy string to list for base class compatibility
-        proxy_list: list[str] | None = None
+        proxy_list: Optional[List[str]] = None
         if isinstance(proxies, str):
             proxy_list = [proxies]
         elif isinstance(proxies, list):
@@ -53,13 +53,13 @@ class Indeed(Scraper):
         self.session = create_session(
             proxies=self.proxies, ca_cert=ca_cert, is_tls=False
         )
-        self.scraper_input: ScraperInput | None = None
+        self.scraper_input: Optional[ScraperInput] = None
         self.jobs_per_page = 100
         self.num_workers = 10
         self.seen_urls: set[str] = set()
-        self.headers: dict[str, str] | None = None
-        self.api_country_code: str | None = None
-        self.base_url: str | None = None
+        self.headers: Optional[Dict[str, str]] = None
+        self.api_country_code: Optional[str] = None
+        self.base_url: Optional[str] = None
         self.api_url = "https://apis.indeed.com/graphql"
 
     def scrape(self, scraper_input: ScraperInput) -> JobResponse:
@@ -96,7 +96,7 @@ class Indeed(Scraper):
             ]
         )
 
-    def _scrape_page(self, cursor: str | None) -> tuple[list[JobPost], str | None]:
+    def _scrape_page(self, cursor: Optional[str]) -> Tuple[List[JobPost], Optional[str]]:
         """Scrapes a page of Indeed for jobs with scraper_input criteria.
 
         :param cursor:
@@ -221,7 +221,7 @@ class Indeed(Scraper):
                 """
         return filters_str
 
-    def _process_job(self, job: dict[str, Any]) -> JobPost | None:
+    def _process_job(self, job: Dict[str, Any]) -> Optional[JobPost]:
         """Parses the job dict into JobPost model.
 
         :param job: dict to parse

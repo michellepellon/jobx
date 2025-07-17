@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any
+from typing import Any, Union, Optional, List
 
 # Third-party dependencies
 import pandas as pd
@@ -38,23 +38,23 @@ from jobx.util import (
 __version__: str = "0.1.0"
 
 def scrape_jobs(
-    site_name: str | list[str] | Site | list[Site] | None = None,
-    search_term: str | None = None,
-    google_search_term: str | None = None,
-    location: str | None = None,
-    distance: int | None = 50,
+    site_name: Union[str, List[str], Site, List[Site], None] = None,
+    search_term: Optional[str] = None,
+    google_search_term: Optional[str] = None,
+    location: Optional[str] = None,
+    distance: Optional[int] = 50,
     is_remote: bool = False,
-    job_type: str | None = None,
-    easy_apply: bool | None = None,
+    job_type: Optional[str] = None,
+    easy_apply: Optional[bool] = None,
     results_wanted: int = 15,
     country_indeed: str = "usa",
-    proxies: list[str] | str | None = None,
-    ca_cert: str | None = None,
+    proxies: Union[List[str], str, None] = None,
+    ca_cert: Optional[str] = None,
     description_format: str = "markdown",
-    linkedin_fetch_description: bool | None = False,
-    linkedin_company_ids: list[int] | None = None,
-    offset: int | None = 0,
-    hours_old: int | None = None,
+    linkedin_fetch_description: Optional[bool] = False,
+    linkedin_company_ids: Optional[List[int]] = None,
+    offset: Optional[int] = 0,
+    hours_old: Optional[int] = None,
     enforce_annual_salary: bool = False,
     verbose: int = 0,
     **kwargs: Any,
