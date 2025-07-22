@@ -1,0 +1,77 @@
+# Git
+.git/
+.gitignore
+.github/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+*.cover
+*.log
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Documentation
+docs/
+mkdocs.yml
+*.md
+!README.md
+
+# Tests
+tests/
+conftest.py
+pytest.ini
+.coveragerc
+
+# CI/CD
+.travis.yml
+.gitlab-ci.yml
+azure-pipelines.yml
+appveyor.yml
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose*.yml
+
+# Development files
+Makefile
+tox.ini
+.editorconfig
+.pre-commit-config.yaml
+
+# Temporary files
+*.tmp
+*.bak
+*.cache
+tmp/
+temp/
