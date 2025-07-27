@@ -25,7 +25,8 @@ dependencies = [
     "pydantic>=2.5.0",
     "tls-client>=1.0.0",
     "markdownify>=1.1.0",
-    "regex>=2024.7.0"
+    "regex>=2024.7.0",
+    "pyarrow>=15.0.0"
 ]
 
 # Extra (optional) dependency groups
@@ -117,6 +118,7 @@ convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["D", "S101"]  # Allow missing docstrings and asserts in tests
+"jobx/cli.py" = ["T201"]  # Allow print statements in CLI
 
 [tool.ruff.format]
 quote-style = "double"
@@ -211,3 +213,10 @@ skips = ["B101", "B601"]
 
 [tool.bandit.assert_used]
 skips = ["*_test.py", "*/test_*.py"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.1",
+    "pytest-cov>=6.2.1",
+    "ruff>=0.12.5",
+]

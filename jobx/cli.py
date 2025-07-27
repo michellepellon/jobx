@@ -3,7 +3,6 @@
 
 import argparse
 import sys
-from typing import Optional
 
 from jobx import scrape_jobs
 
@@ -17,8 +16,10 @@ def main() -> None:
         epilog="""
 Examples:
   jobx -s linkedin -q "python developer" -l "New York" -n 50
-  jobx -s indeed -q "data scientist" -l "San Francisco" 
+  jobx -s indeed -q "data scientist" -l "San Francisco"
   jobx -s linkedin indeed -q "software engineer" -l "Remote" -n 100
+  jobx -q "backend engineer" -l "Seattle" -o jobs.parquet -f parquet
+  jobx -q "ML engineer" -l "Austin" -o results.csv -f csv
         """,
     )
 
@@ -56,7 +57,15 @@ Examples:
     parser.add_argument(
         "-o",
         "--output",
-        help="Output CSV file path (default: print to stdout)",
+        help="Output file path (default: print to stdout)",
+    )
+
+    parser.add_argument(
+        "-f",
+        "--format",
+        choices=["csv", "parquet"],
+        default="csv",
+        help="Output format (default: csv)",
     )
 
     parser.add_argument(
@@ -84,10 +93,16 @@ Examples:
             sys.exit(1)
 
         if args.output:
-            df.to_csv(args.output, index=False)
+            if args.format == "parquet":
+                df.to_parquet(args.output, index=False)
+            else:
+                df.to_csv(args.output, index=False)
             if args.verbose:
-                print(f"Saved {len(df)} jobs to {args.output}")
+                print(f"Saved {len(df)} jobs to {args.output} in {args.format} format")
         else:
+            if args.format == "parquet":
+                print("Error: Parquet format requires an output file (-o/--output)", file=sys.stderr)
+                sys.exit(1)
             print(df.to_csv(index=False))
 
     except Exception as e:

@@ -7,6 +7,7 @@ A modern, powerful job scraper for LinkedIn, Indeed and beyond.
 - 🚀 **Concurrent scraping** from multiple job boards
 - 🎯 **Advanced filtering** by location, salary, job type, and more
 - 📊 **Pandas integration** for data analysis and export
+- 💾 **Multiple output formats** including CSV and Apache Parquet
 - 🔒 **Type-safe** with full mypy compatibility
 - 📈 **Structured logging** with JSON output support
 - ⚡ **High performance** with async/await patterns
@@ -38,6 +39,23 @@ jobs = scrape_jobs(
 
 print(f"Found {len(jobs)} jobs")
 print(jobs[["title", "company", "location", "salary_source"]].head())
+
+# Save to different formats
+jobs.to_csv("jobs.csv", index=False)
+jobs.to_parquet("jobs.parquet", index=False)
+```
+
+### Command Line Usage
+
+```bash
+# Save as CSV (default)
+jobx -q "data engineer" -l "San Francisco" -o results.csv
+
+# Save as Parquet for better performance and compression
+jobx -q "data engineer" -l "San Francisco" -o results.parquet -f parquet
+
+# Scrape from specific sites and save as Parquet
+jobx -s linkedin indeed -q "ML engineer" -l "Remote" -n 100 -o ml_jobs.parquet -f parquet
 ```
 
 ## 🎯 Advanced Usage
@@ -82,6 +100,11 @@ company_stats = high_paying_remote.groupby('company').agg({
 }).round(0)
 
 print(company_stats)
+
+# Save filtered results as Parquet for efficient storage
+high_paying_remote.to_parquet("high_paying_remote_jobs.parquet", 
+                              compression='snappy',
+                              index=False)
 ```
 
 ## 📊 Data Structure
