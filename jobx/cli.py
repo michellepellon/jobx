@@ -20,6 +20,7 @@ Examples:
   jobx -s linkedin indeed -q "software engineer" -l "Remote" -n 100
   jobx -q "backend engineer" -l "Seattle" -o jobs.parquet -f parquet
   jobx -q "ML engineer" -l "Austin" -o results.csv -f csv
+  jobx -q "python developer" -l "New York" -c 0.7  # Only show jobs with 70%+ confidence
         """,
     )
 
@@ -74,6 +75,14 @@ Examples:
         action="store_true",
         help="Enable verbose output",
     )
+    
+    parser.add_argument(
+        "-c",
+        "--min-confidence",
+        type=float,
+        default=0.0,
+        help="Minimum confidence score (0.0-1.0) to include results (default: 0.0)",
+    )
 
     args = parser.parse_args()
 
@@ -91,6 +100,14 @@ Examples:
         if df.empty:
             print("No jobs found matching your criteria.", file=sys.stderr)
             sys.exit(1)
+            
+        # Filter by minimum confidence score if specified
+        if args.min_confidence > 0:
+            original_count = len(df)
+            df = df[df['confidence_score'] >= args.min_confidence]
+            if args.verbose:
+                filtered_count = original_count - len(df)
+                print(f"Filtered out {filtered_count} jobs below confidence score {args.min_confidence}")
 
         if args.output:
             if args.format == "parquet":

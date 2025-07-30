@@ -199,6 +199,9 @@ class JobPost(BaseModel):
 
     # LinkedIn only atm
     job_function: Optional[str] = None
+    
+    # Confidence score for search relevance
+    confidence_score: Optional[float] = None
 
 
 class JobResponse(BaseModel):

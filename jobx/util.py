@@ -561,6 +561,7 @@ desired_order = [
     "max_amount",
     "currency",
     "is_remote",
+    "confidence_score",
     "job_level",
     "job_function",
     "listing_type",

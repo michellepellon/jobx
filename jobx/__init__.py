@@ -21,6 +21,7 @@ import pandas as pd
 from jobx.indeed import Indeed
 from jobx.linkedin import LinkedIn
 from jobx.model import Country, JobResponse, Location, SalarySource, ScraperInput, Site
+from jobx.scoring import calculate_confidence_score
 from jobx.util import (
     convert_to_annual,
     create_logger,
@@ -190,6 +191,12 @@ def scrape_jobs(
                 else None
             )
 
+            # Calculate confidence score
+            job_data["confidence_score"] = calculate_confidence_score(
+                job,
+                search_term or "",
+                location
+            )
 
             job_df = pd.DataFrame([job_data])
             jobs_dfs.append(job_df)
@@ -209,9 +216,9 @@ def scrape_jobs(
         # Reorder the DataFrame according to the desired order
         jobs_df = jobs_df[desired_order]
 
-        # Step 4: Sort the DataFrame as required
+        # Step 4: Sort the DataFrame by confidence score (descending), then by site and date
         return jobs_df.sort_values(
-            by=["site", "date_posted"], ascending=[True, False]
+            by=["confidence_score", "site", "date_posted"], ascending=[False, True, False]
         ).reset_index(drop=True)
     else:
         return pd.DataFrame()

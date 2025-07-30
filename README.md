@@ -6,6 +6,7 @@ A modern, powerful job scraper for LinkedIn, Indeed and beyond.
 
 - 🚀 **Concurrent scraping** from multiple job boards
 - 🎯 **Advanced filtering** by location, salary, job type, and more
+- 🔍 **Confidence scoring** to rank job relevance based on search terms
 - 📊 **Pandas integration** for data analysis and export
 - 💾 **Multiple output formats** including CSV and Apache Parquet
 - 🔒 **Type-safe** with full mypy compatibility
@@ -38,7 +39,7 @@ jobs = scrape_jobs(
 )
 
 print(f"Found {len(jobs)} jobs")
-print(jobs[["title", "company", "location", "salary_source"]].head())
+print(jobs[["title", "company", "location", "confidence_score"]].head())
 
 # Save to different formats
 jobs.to_csv("jobs.csv", index=False)
@@ -56,9 +57,42 @@ jobx -q "data engineer" -l "San Francisco" -o results.parquet -f parquet
 
 # Scrape from specific sites and save as Parquet
 jobx -s linkedin indeed -q "ML engineer" -l "Remote" -n 100 -o ml_jobs.parquet -f parquet
+
+# Filter by confidence score (0.0-1.0) to get only highly relevant results
+jobx -q "python developer" -l "New York" -c 0.7 -o relevant_jobs.csv
 ```
 
 ## 🎯 Advanced Usage
+
+### Confidence Scoring
+
+jobx includes a confidence scoring system that ranks job relevance based on how well they match your search terms and location:
+
+```python
+from jobx import scrape_jobs
+
+jobs = scrape_jobs(
+    search_term="python developer",
+    location="New York",
+    results_wanted=100
+)
+
+# Jobs are automatically sorted by confidence score (highest first)
+print(jobs[['title', 'company', 'confidence_score']].head(10))
+
+# Filter for highly relevant jobs (70%+ confidence)
+relevant_jobs = jobs[jobs['confidence_score'] >= 0.7]
+print(f"Found {len(relevant_jobs)} highly relevant jobs out of {len(jobs)} total")
+
+# Analyze confidence distribution
+print(f"Average confidence: {jobs['confidence_score'].mean():.2%}")
+print(f"Jobs with 80%+ confidence: {len(jobs[jobs['confidence_score'] >= 0.8])}")
+```
+
+The confidence score (0.0-1.0) is calculated based on:
+- **Title match (50%)**: How well the job title matches your search terms
+- **Description match (30%)**: Keyword matching in the job description
+- **Location match (20%)**: Proximity to your specified location (remote jobs always score 1.0)
 
 ### Multi-Site Concurrent Scraping
 
@@ -117,7 +151,7 @@ job_columns = [
     'title', 'company', 'location', 'job_url', 'description',
     'date_posted', 'is_remote', 'job_type', 'site',
     'min_amount', 'max_amount', 'currency', 'interval',
-    'salary_source', 'emails', 'easy_apply'
+    'salary_source', 'emails', 'easy_apply', 'confidence_score'
 ]
 
 # Location details
