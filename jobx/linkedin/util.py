@@ -6,7 +6,7 @@ This module contains utility functions specific to LinkedIn job scraping,
 including job type parsing, location processing, and remote job detection.
 """
 
-from typing import Optional, List
+from typing import List, Optional
 
 from bs4 import BeautifulSoup
 

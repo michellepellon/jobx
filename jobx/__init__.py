@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Union, Optional, List
+from typing import Any, List, Optional, Union
 
 # Third-party dependencies
 import pandas as pd
@@ -58,6 +58,8 @@ def scrape_jobs(
     hours_old: Optional[int] = None,
     enforce_annual_salary: bool = False,
     verbose: int = 0,
+    track_serp: bool = False,
+    my_company_names: Optional[List[str]] = None,
     **kwargs: Any,
 ) -> pd.DataFrame:
     """Scrapes job data from job boards concurrently.
@@ -102,6 +104,8 @@ def scrape_jobs(
         linkedin_company_ids=linkedin_company_ids,
         offset=offset,
         hours_old=hours_old,
+        track_serp=track_serp,
+        my_company_names=my_company_names,
     )
 
     def scrape_site(site: Site) -> tuple[str, JobResponse]:

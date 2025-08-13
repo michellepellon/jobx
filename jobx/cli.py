@@ -2,6 +2,7 @@
 """Command-line interface for jobx job scraper."""
 
 import argparse
+import os
 import sys
 
 from jobx import scrape_jobs
@@ -75,7 +76,7 @@ Examples:
         action="store_true",
         help="Enable verbose output",
     )
-    
+
     parser.add_argument(
         "-c",
         "--min-confidence",
@@ -84,7 +85,26 @@ Examples:
         help="Minimum confidence score (0.0-1.0) to include results (default: 0.0)",
     )
 
+    parser.add_argument(
+        "--track-serp",
+        action="store_true",
+        help="Track SERP position (page index, rank) for each posting",
+    )
+
+    parser.add_argument(
+        "--my-company",
+        nargs="+",
+        help="Company name(s) to track as 'my company' (can specify multiple)",
+    )
+
     args = parser.parse_args()
+
+    # Support environment variable for my-company names
+    if not args.my_company:
+        env_companies = os.getenv("JOBX_MY_COMPANY")
+        if env_companies:
+            # Split by comma for multiple companies
+            args.my_company = [c.strip() for c in env_companies.split(",")]
 
     try:
         if args.verbose:
@@ -95,12 +115,14 @@ Examples:
             search_term=args.query,
             location=args.location,
             results_wanted=args.number,
+            track_serp=args.track_serp,
+            my_company_names=args.my_company,
         )
 
         if df.empty:
             print("No jobs found matching your criteria.", file=sys.stderr)
             sys.exit(1)
-            
+
         # Filter by minimum confidence score if specified
         if args.min_confidence > 0:
             original_count = len(df)
