@@ -13,7 +13,7 @@ import math
 import secrets
 import time
 from datetime import datetime
-from typing import Any, Union, Optional, List
+from typing import Any, List, Optional, Union
 from urllib.parse import unquote, urlparse, urlunparse
 
 import regex as re
@@ -34,6 +34,7 @@ from jobx.model import (
     ScraperInput,
     Site,
 )
+from jobx.serp import LinkedInSerpParser, is_my_company, normalize_company_name
 from jobx.util import (
     create_logger,
     create_session,
@@ -92,6 +93,14 @@ class LinkedIn(Scraper):
         seconds_old = (
             scraper_input.hours_old * 3600 if scraper_input.hours_old else None
         )
+
+        # Initialize SERP parser if tracking is enabled
+        serp_parser = LinkedInSerpParser() if scraper_input.track_serp else None
+
+        # Normalize company names for matching
+        normalized_my_companies = set()
+        if scraper_input.my_company_names:
+            normalized_my_companies = {normalize_company_name(name) for name in scraper_input.my_company_names}
         def should_continue_search() -> bool:
             return len(job_list) < scraper_input.results_wanted and start < 1000
 
@@ -151,6 +160,16 @@ class LinkedIn(Scraper):
             if len(job_cards) == 0:
                 return JobResponse(jobs=job_list)
 
+            # Parse SERP items if tracking is enabled
+            serp_items = []
+            if serp_parser:
+                page_index = (start // self.jobs_per_page)
+                serp_items = serp_parser.parse_serp_items(soup, page_index)
+                # Create a mapping from job_id to SERP item
+                serp_map = {item.job_id: item for item in serp_items}
+            else:
+                serp_map = {}
+
             for job_card in job_cards:
                 if not isinstance(job_card, Tag):
                     continue
@@ -170,6 +189,20 @@ class LinkedIn(Scraper):
                         else:
                             continue
                         if job_post:
+                            # Add SERP tracking data if available
+                            if job_id in serp_map:
+                                serp_item = serp_map[job_id]
+                                job_post.serp_page_index = serp_item.page_index
+                                job_post.serp_index_on_page = serp_item.index_on_page
+                                job_post.serp_absolute_rank = serp_item.absolute_rank_with_page_size(self.jobs_per_page)
+                                job_post.serp_page_size_observed = len(serp_items)
+                                job_post.serp_is_sponsored = serp_item.is_sponsored
+
+                                # Add company matching
+                                if job_post.company_name:
+                                    job_post.company_normalized = normalize_company_name(job_post.company_name)
+                                    job_post.is_my_company = is_my_company(job_post.company_name, normalized_my_companies)
+
                             job_list.append(job_post)
                         if not should_continue_search():
                             break

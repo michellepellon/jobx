@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import math
 from datetime import datetime
-from typing import Any, Union, Optional, List, Dict, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from jobx.indeed.constant import api_headers, job_search_query
 from jobx.indeed.util import get_compensation, get_job_type
@@ -25,6 +25,7 @@ from jobx.model import (
     ScraperInput,
     Site,
 )
+from jobx.serp import IndeedSerpParser, is_my_company, normalize_company_name
 from jobx.util import (
     create_logger,
     create_session,
@@ -79,11 +80,19 @@ class Indeed(Scraper):
 
         cursor = None
 
+        # Initialize SERP parser if tracking is enabled
+        serp_parser = IndeedSerpParser() if scraper_input.track_serp else None
+
+        # Normalize company names for matching
+        normalized_my_companies = set()
+        if scraper_input.my_company_names:
+            normalized_my_companies = {normalize_company_name(name) for name in scraper_input.my_company_names}
+
         while len(self.seen_urls) < scraper_input.results_wanted + scraper_input.offset:
             log.info(
                 f"search page: {page} / {math.ceil(scraper_input.results_wanted / self.jobs_per_page)}"
             )
-            jobs, cursor = self._scrape_page(cursor)
+            jobs, cursor = self._scrape_page(cursor, page - 1, serp_parser, normalized_my_companies)
             if not jobs:
                 log.info(f"found no jobs on page: {page}")
                 break
@@ -96,7 +105,13 @@ class Indeed(Scraper):
             ]
         )
 
-    def _scrape_page(self, cursor: Optional[str]) -> Tuple[List[JobPost], Optional[str]]:
+    def _scrape_page(
+        self,
+        cursor: Optional[str],
+        page_index: int,
+        serp_parser: Optional[IndeedSerpParser],
+        normalized_my_companies: set[str]
+    ) -> Tuple[List[JobPost], Optional[str]]:
         """Scrapes a page of Indeed for jobs with scraper_input criteria.
 
         :param cursor:
@@ -143,10 +158,36 @@ class Indeed(Scraper):
         job_results: list[dict[str, Any]] = data["data"]["jobSearch"]["results"]
         new_cursor = data["data"]["jobSearch"]["pageInfo"]["nextCursor"]
 
+        # Parse SERP items if tracking is enabled
+        serp_items = []
+        if serp_parser:
+            serp_items = serp_parser.parse_serp_items(job_results, page_index)
+            # Create a mapping from job_id to SERP item
+            serp_map = {item.job_id: item for item in serp_items}
+        else:
+            serp_map = {}
+
         job_list: list[JobPost] = []
-        for job in job_results:
-            processed_job = self._process_job(job["job"])
+        for job_result in job_results:
+            job = job_result["job"]
+            processed_job = self._process_job(job)
             if processed_job:
+                # Add SERP tracking data if available
+                job_id = job.get("key", "")
+                if job_id in serp_map:
+                    serp_item = serp_map[job_id]
+                    processed_job.serp_page_index = serp_item.page_index
+                    processed_job.serp_index_on_page = serp_item.index_on_page
+                    # Indeed typically shows 15 jobs per page
+                    processed_job.serp_absolute_rank = serp_item.absolute_rank_with_page_size(15)
+                    processed_job.serp_page_size_observed = len(serp_items)
+                    processed_job.serp_is_sponsored = serp_item.is_sponsored
+
+                    # Add company matching
+                    if processed_job.company_name:
+                        processed_job.company_normalized = normalize_company_name(processed_job.company_name)
+                        processed_job.is_my_company = is_my_company(processed_job.company_name, normalized_my_companies)
+
                 job_list.append(processed_job)
 
         return job_list, new_cursor

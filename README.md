@@ -60,6 +60,13 @@ jobx -s linkedin indeed -q "ML engineer" -l "Remote" -n 100 -o ml_jobs.parquet -
 
 # Filter by confidence score (0.0-1.0) to get only highly relevant results
 jobx -q "python developer" -l "New York" -c 0.7 -o relevant_jobs.csv
+
+# Track SERP position and identify competitor postings vs your company
+jobx -q "software engineer" -l "Seattle" --track-serp --my-company "Acme Corp" "Acme Inc" -o serp_tracked.csv
+
+# Use environment variable for company names
+export JOBX_MY_COMPANY="Acme Corp,Acme Inc"
+jobx -q "data scientist" -l "Remote" --track-serp -o tracked_jobs.parquet -f parquet
 ```
 
 ## 🎯 Advanced Usage
@@ -93,6 +100,45 @@ The confidence score (0.0-1.0) is calculated based on:
 - **Title match (50%)**: How well the job title matches your search terms
 - **Description match (30%)**: Keyword matching in the job description
 - **Location match (20%)**: Proximity to your specified location (remote jobs always score 1.0)
+
+### SERP Position Tracking
+
+Track where job postings appear in search results (page and rank) to understand visibility and compare your company's postings against competitors:
+
+```python
+from jobx import scrape_jobs
+
+# Track SERP positions and identify your company's postings
+jobs = scrape_jobs(
+    search_term="machine learning engineer",
+    location="Boston",
+    track_serp=True,
+    my_company_names=["Acme Corp", "Acme Inc."],
+    results_wanted=100
+)
+
+# Analyze SERP visibility
+print(f"Average position: {jobs['serp_absolute_rank'].mean():.1f}")
+print(f"Page 1 listings: {len(jobs[jobs['serp_page_index'] == 0])}")
+print(f"Sponsored posts: {jobs['serp_is_sponsored'].sum()}")
+
+# Compare your company vs competitors
+my_company_jobs = jobs[jobs['is_my_company'] == True]
+competitor_jobs = jobs[jobs['is_my_company'] == False]
+
+print(f"Your company: {len(my_company_jobs)} postings")
+print(f"Average rank: {my_company_jobs['serp_absolute_rank'].mean():.1f}")
+print(f"Competitors: {len(competitor_jobs)} postings")
+```
+
+SERP tracking adds these columns to your results:
+- **serp_page_index**: 0-based page number (0 = first page)
+- **serp_index_on_page**: Position on the page (0-based)
+- **serp_absolute_rank**: Overall rank across all pages (1-based)
+- **serp_page_size_observed**: Number of organic results on the page
+- **serp_is_sponsored**: Whether the posting is promoted/sponsored
+- **company_normalized**: Normalized company name for matching
+- **is_my_company**: Whether it matches your configured company names
 
 ### Multi-Site Concurrent Scraping
 

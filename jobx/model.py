@@ -11,7 +11,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from datetime import date
 from enum import Enum
-from typing import Union, Optional, List
+from typing import List, Optional, Union
 
 from pydantic import BaseModel
 
@@ -199,9 +199,18 @@ class JobPost(BaseModel):
 
     # LinkedIn only atm
     job_function: Optional[str] = None
-    
+
     # Confidence score for search relevance
     confidence_score: Optional[float] = None
+
+    # SERP tracking fields
+    serp_page_index: Optional[int] = None
+    serp_index_on_page: Optional[int] = None
+    serp_absolute_rank: Optional[int] = None
+    serp_page_size_observed: Optional[int] = None
+    serp_is_sponsored: Optional[bool] = None
+    company_normalized: Optional[str] = None
+    is_my_company: Optional[bool] = None
 
 
 class JobResponse(BaseModel):
@@ -240,6 +249,10 @@ class ScraperInput(BaseModel):
 
     results_wanted: int = 15
     hours_old: Optional[int] = None
+
+    # SERP tracking options
+    track_serp: bool = False
+    my_company_names: Optional[List[str]] = None
 
 
 class Scraper(ABC):

@@ -18,7 +18,7 @@ from collections.abc import Generator, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from itertools import cycle
-from typing import Any, Union, Optional, List, Dict
+from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
 import requests
@@ -552,6 +552,8 @@ desired_order = [
     "job_url_direct",
     "title",
     "company",
+    "company_normalized",
+    "is_my_company",
     "location",
     "date_posted",
     "job_type",
@@ -562,6 +564,11 @@ desired_order = [
     "currency",
     "is_remote",
     "confidence_score",
+    "serp_page_index",
+    "serp_index_on_page",
+    "serp_absolute_rank",
+    "serp_page_size_observed",
+    "serp_is_sponsored",
     "job_level",
     "job_function",
     "listing_type",
