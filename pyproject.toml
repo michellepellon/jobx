@@ -7,7 +7,7 @@ name            = "jobx"
 version         = "0.1.0"
 description     = "A job scraper for LinkedIn and Indeed."
 readme          = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.13"
 authors         = [{name = "Michelle Pellon", email = "mgracepellon@gmail.com"}]
 keywords        = ["job-scraper", "linkedin", "indeed"]
 classifiers     = [
@@ -26,7 +26,8 @@ dependencies = [
     "tls-client>=1.0.0",
     "markdownify>=1.1.0",
     "regex>=2024.7.0",
-    "pyarrow>=15.0.0"
+    "pyarrow>=15.0.0",
+    "pricetag>=1.0.0",
 ]
 
 # Extra (optional) dependency groups
@@ -88,7 +89,7 @@ include = ["/jobx", "/README.md", "/pyproject.toml"]
 
 # Code Quality and Tooling
 [tool.ruff]
-target-version = "py39"
+target-version = "py313"
 line-length = 120
 
 [tool.ruff.lint]
@@ -128,7 +129,7 @@ line-ending = "auto"
 
 [tool.black]
 line-length          = 120
-target-version       = ["py39"]
+target-version       = ["py313"]
 skip-string-normalization = true
 
 [tool.isort]
@@ -137,7 +138,7 @@ line_length  = 120
 src_paths    = ["src", "tests"]
 
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.13"
 strict = true
 warn_return_any = true
 warn_unused_configs = true

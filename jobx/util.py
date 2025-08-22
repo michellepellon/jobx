@@ -1,6 +1,6 @@
 # Copyright (c) 2025 Michelle Pellon. MIT License
 
-"""jobx.util
+"""jobx.util.
 
 This module contains utility functions and classes used throughout the jobx package.
 It provides HTTP session management, data parsing, logging configuration, and
@@ -18,9 +18,10 @@ from collections.abc import Generator, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from itertools import cycle
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 import numpy as np
+import pricetag
 import requests
 import tls_client
 import urllib3
@@ -86,7 +87,7 @@ class JSONFormatter(logging.Formatter):
         return json.dumps(log_data)
 
 
-def create_logger(name: str, use_json: Optional[bool] = None) -> logging.Logger:
+def create_logger(name: str, use_json: bool | None = None) -> logging.Logger:
     """Create a structured logger with optional JSON output.
 
     Args:
@@ -141,9 +142,9 @@ def log_with_context(logger: logging.Logger, level: int, message: str, **kwargs:
 class RotatingProxySession:
     """Base class for rotating proxy sessions."""
 
-    proxy_cycle: Optional[Iterator[Dict[str, str]]]
+    proxy_cycle: Iterator[dict[str, str]] | None
 
-    def __init__(self, proxies: Union[List[str], str, None] = None) -> None:
+    def __init__(self, proxies: list[str] | str | None = None) -> None:
         """Initialize RotatingProxySession with optional proxies."""
         if isinstance(proxies, str):
             self.proxy_cycle = cycle([self.format_proxy(proxies)])
@@ -169,7 +170,7 @@ class RotatingProxySession:
 class RequestsRotating(RotatingProxySession, requests.Session):
     """Requests session with rotating proxy support."""
 
-    def __init__(self, proxies: Union[List[str], str, None] = None, has_retry: bool = False,
+    def __init__(self, proxies: list[str] | str | None = None, has_retry: bool = False,
                  delay: int = 1, clear_cookies: bool = False) -> None:
         """Initialize RequestsRotating session."""
         RotatingProxySession.__init__(self, proxies=proxies)
@@ -209,7 +210,7 @@ class RequestsRotating(RotatingProxySession, requests.Session):
 class TLSRotating(RotatingProxySession, tls_client.Session):  # type: ignore[misc]
     """TLS client session with rotating proxy support."""
 
-    def __init__(self, proxies: Union[List[str], str, None] = None) -> None:
+    def __init__(self, proxies: list[str] | str | None = None) -> None:
         """Initialize TLSRotating session."""
         RotatingProxySession.__init__(self, proxies=proxies)
         tls_client.Session.__init__(self, random_tls_extension_order=True)
@@ -229,18 +230,18 @@ class TLSRotating(RotatingProxySession, tls_client.Session):  # type: ignore[mis
 
 def create_session(
     *,
-    proxies: Union[List[str], str, None] = None,
-    ca_cert: Optional[str] = None,
+    proxies: list[str] | str | None = None,
+    ca_cert: str | None = None,
     is_tls: bool = True,
     has_retry: bool = False,
     delay: int = 1,
     clear_cookies: bool = False,
-) -> Union[requests.Session, TLSRotating]:
+) -> requests.Session | TLSRotating:
     """Creates a requests session with optional tls, proxy, and retry settings.
 
     :return: A session object.
     """
-    session: Union[requests.Session, TLSRotating]
+    session: requests.Session | TLSRotating
     if is_tls:
         session = TLSRotating(proxies=proxies)
     else:
@@ -260,13 +261,13 @@ def create_session(
 @contextmanager
 def managed_session(
     *,
-    proxies: Union[List[str], str, None] = None,
-    ca_cert: Optional[str] = None,
+    proxies: list[str] | str | None = None,
+    ca_cert: str | None = None,
     is_tls: bool = True,
     has_retry: bool = False,
     delay: int = 1,
     clear_cookies: bool = False,
-) -> Generator[Union[requests.Session, TLSRotating], None, None]:
+) -> Generator[requests.Session | TLSRotating]:
     """Context manager for HTTP sessions with proper cleanup.
 
     Args:
@@ -315,9 +316,9 @@ def managed_session(
 @contextmanager
 def handle_scraping_errors(
     operation: str,
-    site: Optional[str] = None,
+    site: str | None = None,
     **context_data: Any
-) -> Generator[None, None, None]:
+) -> Generator[None]:
     """Context manager for handling scraping operation errors.
 
     Args:
@@ -348,7 +349,7 @@ def handle_scraping_errors(
         raise
 
 
-def set_logger_level(verbose: Optional[int]) -> None:
+def set_logger_level(verbose: int | None) -> None:
     """Adjusts the logger's level. This function allows the logging level to be changed at runtime.
 
     Parameters:
@@ -371,7 +372,7 @@ def set_logger_level(verbose: Optional[int]) -> None:
         raise ValueError(f"Invalid log level: {level_name}")
 
 
-def markdown_converter(description_html: Optional[str]) -> Optional[str]:
+def markdown_converter(description_html: str | None) -> str | None:
     """Convert HTML description to markdown format."""
     if description_html is None:
         return None
@@ -379,7 +380,7 @@ def markdown_converter(description_html: Optional[str]) -> Optional[str]:
     return str(markdown).strip()
 
 
-def extract_emails_from_text(text: str) -> Optional[List[str]]:
+def extract_emails_from_text(text: str) -> list[str] | None:
     """Extract email addresses from text using regex."""
     if not text:
         return None
@@ -387,7 +388,7 @@ def extract_emails_from_text(text: str) -> Optional[List[str]]:
     return email_regex.findall(text)
 
 
-def parse_job_type_enum(job_type_str: Optional[str]) -> Optional[JobType]:
+def parse_job_type_enum(job_type_str: str | None) -> JobType | None:
     """Given a string, returns the corresponding JobType enum member if a match is found.
 
     Returns None if no match is found or if job_type_str is None.
@@ -402,7 +403,7 @@ def parse_job_type_enum(job_type_str: Optional[str]) -> Optional[JobType]:
     return None
 
 
-def get_enum_from_job_type(job_type_str: str) -> Optional[JobType]:
+def get_enum_from_job_type(job_type_str: str) -> JobType | None:
     """Deprecated: Use parse_job_type_enum instead.
 
     Given a string, returns the corresponding JobType enum member if a match is found.
@@ -436,74 +437,122 @@ def remove_attributes(tag: Any) -> Any:
 
 
 def extract_salary(
-    salary_str: Optional[str],
+    salary_str: str | None,
     lower_limit: float = MIN_SALARY_LIMIT,
     upper_limit: float = MAX_SALARY_LIMIT,
     hourly_threshold: float = HOURLY_THRESHOLD,
     monthly_threshold: float = MONTHLY_THRESHOLD,
     enforce_annual_salary: bool = False,
-) -> tuple[Optional[str], Optional[float], Optional[float], Optional[str]]:
-    """Extract salary information from a string.
+) -> tuple[str | None, float | None, float | None, str | None]:
+    """Extract salary information from a string using pricetag library.
 
     Returns the salary interval, min and max salary values, and currency.
-    (TODO: Needs test cases as the regex is complicated and may not cover all edge cases).
     """
     if not salary_str:
         return None, None, None, None
 
-    annual_max_salary = None
-    min_max_pattern = r"\$(\d+(?:,\d+)?(?:\.\d+)?)([kK]?)\s*[-—-]\s*(?:\$)?(\d+(?:,\d+)?(?:\.\d+)?)([kK]?)"
+    # Create pricetag extractor with configuration
+    extractor = pricetag.PriceExtractor(
+        normalize_to_annual=False,  # We'll handle normalization ourselves
+        min_salary=lower_limit,
+        max_salary=upper_limit,
+        assume_hours_per_year=HOURS_PER_YEAR,
+    )
 
-    def to_int(s: str) -> int:
-        return int(float(s.replace(",", "")))
+    # Extract price information
+    results = extractor.extract(salary_str)
 
-    def convert_hourly_to_annual(hourly_wage: float) -> float:
-        return hourly_wage * HOURS_PER_YEAR
+    if not results:
+        return None, None, None, None
 
-    def convert_monthly_to_annual(monthly_wage: float) -> float:
-        return monthly_wage * MONTHS_PER_YEAR
+    # Get the first extracted price
+    result = results[0]
 
-    match = re.search(min_max_pattern, salary_str)
+    # Extract values from pricetag result
+    if isinstance(result['value'], tuple):
+        min_salary = result['value'][0]
+        max_salary = result['value'][1]
+    else:
+        min_salary = result['value']
+        max_salary = result['value']
 
-    if match:
-        min_salary = to_int(match.group(1))
-        max_salary = to_int(match.group(3))
-        # Handle 'k' suffix for min and max salaries independently
-        if "k" in match.group(2).lower() or "k" in match.group(4).lower():
-            min_salary *= 1000
-            max_salary *= 1000
+    currency = result.get('currency', 'USD')
 
-        # Convert to annual if less than the hourly threshold
+    # Determine interval based on type from pricetag
+    type_mapping = {
+        "hourly": CompensationInterval.HOURLY.value,
+        "daily": CompensationInterval.DAILY.value,
+        "weekly": CompensationInterval.WEEKLY.value,
+        "monthly": CompensationInterval.MONTHLY.value,
+        "yearly": CompensationInterval.YEARLY.value,
+        "annual": CompensationInterval.YEARLY.value,
+    }
+
+    # Get interval from pricetag type
+    interval = type_mapping.get(result.get('type', ''), None)
+
+    if not interval:
+        # Fall back to threshold-based detection
         if min_salary < hourly_threshold:
             interval = CompensationInterval.HOURLY.value
-            annual_min_salary = convert_hourly_to_annual(min_salary)
-            if max_salary < hourly_threshold:
-                annual_max_salary = convert_hourly_to_annual(max_salary)
-
         elif min_salary < monthly_threshold:
             interval = CompensationInterval.MONTHLY.value
-            annual_min_salary = convert_monthly_to_annual(min_salary)
-            if max_salary < monthly_threshold:
-                annual_max_salary = convert_monthly_to_annual(max_salary)
-
         else:
             interval = CompensationInterval.YEARLY.value
-            annual_min_salary = min_salary
-            annual_max_salary = max_salary
 
-        # Ensure salary range is within specified limits
-        if not annual_max_salary:
-            return None, None, None, None
+    # Convert to annual if requested
+    if enforce_annual_salary:
+        annual_min_salary = min_salary
+        annual_max_salary = max_salary
+
+        if interval == CompensationInterval.HOURLY.value:
+            annual_min_salary = min_salary * HOURS_PER_YEAR
+            annual_max_salary = max_salary * HOURS_PER_YEAR
+        elif interval == CompensationInterval.DAILY.value:
+            annual_min_salary = min_salary * DAYS_PER_YEAR
+            annual_max_salary = max_salary * DAYS_PER_YEAR
+        elif interval == CompensationInterval.WEEKLY.value:
+            annual_min_salary = min_salary * WEEKS_PER_YEAR
+            annual_max_salary = max_salary * WEEKS_PER_YEAR
+        elif interval == CompensationInterval.MONTHLY.value:
+            annual_min_salary = min_salary * MONTHS_PER_YEAR
+            annual_max_salary = max_salary * MONTHS_PER_YEAR
+
+        # Validate against limits
         if (
             lower_limit <= annual_min_salary <= upper_limit
             and lower_limit <= annual_max_salary <= upper_limit
-            and annual_min_salary < annual_max_salary
+            and annual_min_salary <= annual_max_salary
         ):
-            if enforce_annual_salary:
-                return interval, annual_min_salary, annual_max_salary, "USD"
-            else:
-                return interval, min_salary, max_salary, "USD"
-    return None, None, None, None
+            return interval, annual_min_salary, annual_max_salary, currency
+        else:
+            return None, None, None, None
+    else:
+        # Validate against limits (check annualized values)
+        check_min = min_salary
+        check_max = max_salary
+
+        if interval == CompensationInterval.HOURLY.value:
+            check_min = min_salary * HOURS_PER_YEAR
+            check_max = max_salary * HOURS_PER_YEAR
+        elif interval == CompensationInterval.DAILY.value:
+            check_min = min_salary * DAYS_PER_YEAR
+            check_max = max_salary * DAYS_PER_YEAR
+        elif interval == CompensationInterval.WEEKLY.value:
+            check_min = min_salary * WEEKS_PER_YEAR
+            check_max = max_salary * WEEKS_PER_YEAR
+        elif interval == CompensationInterval.MONTHLY.value:
+            check_min = min_salary * MONTHS_PER_YEAR
+            check_max = max_salary * MONTHS_PER_YEAR
+
+        if (
+            lower_limit <= check_min <= upper_limit
+            and lower_limit <= check_max <= upper_limit
+            and check_min <= check_max
+        ):
+            return interval, min_salary, max_salary, currency
+        else:
+            return None, None, None, None
 
 
 
