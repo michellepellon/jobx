@@ -73,8 +73,11 @@ class LinkedIn(Scraper):
             has_retry=True,
             delay=5,
             clear_cookies=True,
+            use_stealth=True,  # Enable anti-detection features
         )
-        self.session.headers.update(headers)
+        # Don't update headers here if using stealth mode - let StealthSession handle it
+        if not hasattr(self.session, 'user_agent_rotator'):
+            self.session.headers.update(headers)
         self.scraper_input: Optional[ScraperInput] = None
         self.country = "worldwide"
         self.job_url_direct_regex = re.compile(r'(?<=\?url=)[^"]+')

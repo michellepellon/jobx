@@ -236,10 +236,20 @@ def create_session(
     has_retry: bool = False,
     delay: int = 1,
     clear_cookies: bool = False,
+    use_stealth: bool = False,
 ) -> requests.Session | TLSRotating:
     """Creates a requests session with optional tls, proxy, and retry settings.
 
-    :return: A session object.
+    Args:
+        proxies: Proxy configuration
+        ca_cert: CA certificate path
+        is_tls: Whether to use TLS client
+        has_retry: Whether to enable retries
+        delay: Delay between retries
+        clear_cookies: Whether to clear cookies between requests
+        use_stealth: Whether to wrap session with anti-detection features
+
+    :return: A session object, optionally wrapped with StealthSession.
     """
     session: requests.Session | TLSRotating
     if is_tls:
@@ -255,6 +265,33 @@ def create_session(
     if ca_cert:
         session.verify = ca_cert
 
+    # Wrap with stealth features if requested
+    if use_stealth:
+        from jobx.anti_detection import (
+            StealthSession,
+            UserAgentRotator,
+            IntelligentDelayManager,
+            ProxyRotator,
+        )
+        
+        # Set up anti-detection components
+        user_agent_rotator = UserAgentRotator()
+        delay_manager = IntelligentDelayManager(base_delay=delay)
+        
+        # Set up proxy rotation if proxies provided
+        proxy_rotator = None
+        if proxies:
+            proxy_list = [proxies] if isinstance(proxies, str) else proxies
+            proxy_rotator = ProxyRotator(proxy_list)
+        
+        # Return wrapped session
+        return StealthSession(
+            session=session,
+            user_agent_rotator=user_agent_rotator,
+            delay_manager=delay_manager,
+            proxy_rotator=proxy_rotator,
+        )
+
     return session
 
 
@@ -267,6 +304,7 @@ def managed_session(
     has_retry: bool = False,
     delay: int = 1,
     clear_cookies: bool = False,
+    use_stealth: bool = False,
 ) -> Generator[requests.Session | TLSRotating]:
     """Context manager for HTTP sessions with proper cleanup.
 
@@ -277,12 +315,13 @@ def managed_session(
         has_retry: Whether to enable retries
         delay: Delay between retries
         clear_cookies: Whether to clear cookies between requests
+        use_stealth: Whether to enable anti-detection features
 
     Yields:
         Configured session instance
 
     Example:
-        with managed_session(has_retry=True) as session:
+        with managed_session(has_retry=True, use_stealth=True) as session:
             response = session.get("https://example.com")
     """
     session = create_session(
@@ -292,6 +331,7 @@ def managed_session(
         has_retry=has_retry,
         delay=delay,
         clear_cookies=clear_cookies,
+        use_stealth=use_stealth,
     )
 
     try:
