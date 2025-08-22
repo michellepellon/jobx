@@ -215,7 +215,7 @@ class TestCompanyNormalization:
         assert normalize_company_name("OpenAI") == "openai"
         assert normalize_company_name("NVIDIA Corporation") == "nvidia"
         assert normalize_company_name("Tesla, Inc.") == "tesla"
-        assert normalize_company_name("  Spaces  Company  ") == "spaces company"
+        assert normalize_company_name("  Spaces  Company  ") == "spaces"
         assert normalize_company_name("") == ""
         assert normalize_company_name("IBM") == "ibm"
         

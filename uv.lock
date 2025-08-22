@@ -462,6 +462,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "regex" },
     { name = "requests" },
+    { name = "tidyname" },
     { name = "tls-client" },
 ]
 
@@ -538,6 +539,7 @@ requires-dist = [
     { name = "safety", marker = "extra == 'dev'", specifier = ">=3.0.0" },
     { name = "safety", marker = "extra == 'security'", specifier = ">=3.0.0" },
     { name = "structlog", marker = "extra == 'dev'", specifier = ">=24.0.0" },
+    { name = "tidyname", specifier = ">=0.1.0" },
     { name = "tls-client", specifier = ">=1.0.0" },
 ]
 provides-extras = ["dev", "testing", "docs", "security"]
@@ -1434,6 +1436,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/0a/d4/2b0cd0fe285e14b36db076e78c93766ff1d529d70408bd1d2a5a84f1d929/tenacity-9.1.2.tar.gz", hash = "sha256:1169d376c297e7de388d18b4481760d478b0e99a777cad3a9c86e556f4b697cb", size = 48036, upload-time = "2025-04-02T08:25:09.966Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e5/30/643397144bfbfec6f6ef821f36f33e57d35946c44a2352d3c9f0ae847619/tenacity-9.1.2-py3-none-any.whl", hash = "sha256:f77bf36710d8b73a50b2dd155c97b870017ad21afe6ab300326b0371b3b05138", size = 28248, upload-time = "2025-04-02T08:25:07.678Z" },
+]
+
+[[package]]
+name = "tidyname"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/51/70/250fd335b56fb6bda132c37c04fbaf44f739799bc86598467a52e8c2adc8/tidyname-0.1.0.tar.gz", hash = "sha256:4276f20ff828d49808d3d3afbe25831e1a455c2cb2773b8e0dfc0f3c99f4eee9", size = 16569, upload-time = "2025-08-22T00:52:05.94Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/19/30/2855bb9fd53c89006bfcd4f77651aebb1377bb1bfc87e1f8871df60282e3/tidyname-0.1.0-py3-none-any.whl", hash = "sha256:5e9e2c7a1a6334ff6d358bd1dd5cdcc6df99fb9a457b3a2fae6e1b717cc9acec", size = 10936, upload-time = "2025-08-22T00:52:04.974Z" },
 ]
 
 [[package]]

@@ -14,6 +14,7 @@ from typing import Any, List, Optional, Set, Union
 
 from bs4 import BeautifulSoup
 from bs4.element import Tag
+from tidyname import Cleaner
 
 from jobx.model import Site
 
@@ -235,7 +236,7 @@ class IndeedSerpParser(SerpParser):
 
 
 def normalize_company_name(company_name: str) -> str:
-    """Normalize company name for matching.
+    """Normalize company name for matching using tidyname library.
     
     Args:
         company_name: Raw company name
@@ -246,40 +247,15 @@ def normalize_company_name(company_name: str) -> str:
     if not company_name:
         return ""
 
-    # Convert to lowercase
-    normalized = company_name.lower()
-
-    # Remove common suffixes
-    suffixes_to_remove = [
-        ", inc.",
-        ", inc",
-        " inc.",
-        " inc",
-        ", llc",
-        " llc",
-        ", ltd",
-        " ltd",
-        ", corp",
-        " corp",
-        ", co.",
-        " co.",
-        ", co",
-        " co",
-        ", incorporated",
-        " incorporated",
-        ", limited",
-        " limited",
-        ", corporation",
-        " corporation",
-        ", company",
-        " company",
-    ]
-
-    for suffix in suffixes_to_remove:
-        if normalized.endswith(suffix):
-            normalized = normalized[:-len(suffix)]
-            break
-
+    # Use tidyname to clean and normalize the company name
+    # tidyname handles removal of legal suffixes, punctuation, and standardization
+    cleaner = Cleaner()
+    result = cleaner.clean(company_name)
+    normalized = result.cleaned
+    
+    # Convert to lowercase for case-insensitive matching
+    normalized = normalized.lower()
+    
     # Remove extra whitespace
     normalized = " ".join(normalized.split())
 
