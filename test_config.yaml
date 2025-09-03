@@ -1,0 +1,17 @@
+# Small test configuration for verifying the market analysis tool
+job_title: "Board Certified Behavioral Analyst"
+search_radius: 25
+results_per_location: 10  # Small number for testing
+batch_size: 2
+
+markets:
+  - name: "Test Market"
+    regions:
+      - name: "Test Region"
+        locations:
+          - name: "Boston"
+            address: "Boston, MA"
+            zip_code: "02108"
+          - name: "New York"
+            address: "New York, NY"
+            zip_code: "10001"

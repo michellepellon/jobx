@@ -29,6 +29,8 @@ dependencies = [
     "pyarrow>=15.0.0",
     "pricetag>=1.0.0",
     "tidyname>=0.1.0",
+    "pyyaml>=6.0.0",
+    "scipy>=1.11.0",
 ]
 
 # Extra (optional) dependency groups
@@ -73,6 +75,7 @@ Changelog   = "https://github.com/michellepellon/jobx/releases"
 # Console-script entry points
 [project.scripts]
 jobx = "jobx.cli:main"
+jobx-market = "jobx.market_analysis.cli:main"
 
 # Hatch configuration
 [tool.hatch.version]
