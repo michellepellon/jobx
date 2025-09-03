@@ -4,7 +4,7 @@ build-backend   = "hatchling.build"
 
 [project]
 name            = "jobx"
-version         = "0.1.0"
+version         = "0.2.0"
 description     = "A job scraper for LinkedIn and Indeed."
 readme          = "README.md"
 requires-python = ">=3.13"
@@ -204,7 +204,7 @@ markers = [
 
 # Release Automation
 [tool.bumpver]
-current_version  = "0.1.0"
+current_version  = "0.2.0"
 version_pattern  = "MAJOR.MINOR.PATCH"
 commit           = true     # create “chore: bump version” commit
 tag              = true     # create “v0.1.0” Git tag

@@ -36,7 +36,7 @@ from jobx.util import (
 # Hatch (or Bumpver) treats __version__ as the *single source of truth*.
 # When you run `hatch version minor` (or similar), this value is bumped
 # and committed automatically.
-__version__: str = "0.1.0"
+__version__: str = "0.2.0"
 
 def scrape_jobs(
     site_name: Union[str, List[str], Site, List[Site], None] = None,

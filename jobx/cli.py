@@ -5,7 +5,7 @@ import argparse
 import os
 import sys
 
-from jobx import scrape_jobs
+from jobx import __version__, scrape_jobs
 
 
 def main() -> None:
@@ -95,6 +95,13 @@ Examples:
         "--my-company",
         nargs="+",
         help="Company name(s) to track as 'my company' (can specify multiple)",
+    )
+
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+        help="Show program version and exit",
     )
 
     args = parser.parse_args()
