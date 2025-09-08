@@ -1,25 +1,51 @@
-"""Batch executor for concurrent job searches."""
+"""Batch executor for concurrent job searches with role-based support.
+
+This module handles concurrent execution of job searches across multiple locations
+and roles, with proper rate limiting and error handling.
+"""
 
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple
+
 import pandas as pd
 
 from jobx import scrape_jobs
-from jobx.market_analysis.config_loader import Config, Location
+from jobx.market_analysis.config_loader import Center, Config, Location, Role
 from jobx.market_analysis.logger import MarketAnalysisLogger
 
 
 @dataclass
 class LocationResult:
-    """Result from searching a single location."""
-    location: Location
+    """Result from searching a single location for a specific role."""
+    center: Center
+    role: Role
     success: bool
     jobs_df: Optional[pd.DataFrame] = None
     error: Optional[str] = None
     jobs_found: int = 0
     jobs_with_salary: int = 0
+    market_name: str = ""
+    region_name: str = ""
+    
+    @property
+    def location(self) -> Location:
+        """Get legacy Location object for backward compatibility."""
+        return Location.from_center(
+            self.center,
+            self.market_name,
+            self.region_name
+        )
+
+
+@dataclass
+class RoleSearchTask:
+    """Represents a search task for a specific role at a specific center."""
+    role: Role
+    center: Center
+    market_name: str
+    region_name: str
 
 
 class BatchExecutor:
@@ -36,25 +62,28 @@ class BatchExecutor:
         self.logger = logger
         self.results: List[LocationResult] = []
     
-    def search_location(self, location: Location) -> LocationResult:
-        """Search jobs for a single location.
+    def search_location(self, task: RoleSearchTask) -> LocationResult:
+        """Search jobs for a specific role at a specific location.
         
         Args:
-            location: Location to search
+            task: Search task containing role and location details
             
         Returns:
             LocationResult with search results or error
         """
         try:
-            self.logger.debug(f"Searching {location.name} ({location.zip_code})")
+            self.logger.debug(
+                f"Searching {task.center.name} ({task.center.zip_code}) "
+                f"for role: {task.role.name}"
+            )
             
             # Use jobx scrape_jobs function
             df = scrape_jobs(
                 site_name=["linkedin", "indeed"],
-                search_term=self.config.job_title,
-                location=location.zip_code,
-                distance=self.config.search_radius,
-                results_wanted=self.config.results_per_location,
+                search_term=task.role.name,
+                location=task.center.search_location,
+                distance=self.config.search.radius_miles,
+                results_wanted=self.config.search.results_per_location,
                 is_remote=True,  # Include all positions
                 country_indeed="usa",
                 verbose=0  # Suppress jobx output
@@ -62,144 +91,305 @@ class BatchExecutor:
             
             if df.empty:
                 return LocationResult(
-                    location=location,
+                    center=task.center,
+                    role=task.role,
                     success=False,
-                    error="No jobs found"
+                    error="No jobs found",
+                    market_name=task.market_name,
+                    region_name=task.region_name
                 )
             
             # Count jobs with salary data
             salary_mask = df['min_amount'].notna() | df['max_amount'].notna()
             jobs_with_salary = salary_mask.sum()
             
-            # Add location metadata to dataframe
-            df['search_location'] = location.name
-            df['search_zip'] = location.zip_code
-            df['market'] = location.market
-            df['region'] = location.region
+            # Add location and role metadata to dataframe
+            df['search_location'] = task.center.name
+            df['search_zip'] = task.center.zip_code
+            df['search_code'] = task.center.code
+            df['market'] = task.market_name
+            df['region'] = task.region_name
+            df['role_id'] = task.role.id
+            df['role_name'] = task.role.name
+            df['role_pay_type'] = task.role.pay_type.value
             
             self.logger.success(
-                location.name, 
-                location.zip_code, 
-                len(df), 
+                task.center.name,
+                task.center.zip_code,
+                len(df),
                 jobs_with_salary
             )
             
             return LocationResult(
-                location=location,
+                center=task.center,
+                role=task.role,
                 success=True,
                 jobs_df=df,
                 jobs_found=len(df),
-                jobs_with_salary=jobs_with_salary
+                jobs_with_salary=jobs_with_salary,
+                market_name=task.market_name,
+                region_name=task.region_name
             )
             
         except Exception as e:
             error_msg = str(e)
-            self.logger.failure(location.name, location.zip_code, error_msg)
+            self.logger.failure(task.center.name, task.center.zip_code, error_msg)
             return LocationResult(
-                location=location,
+                center=task.center,
+                role=task.role,
                 success=False,
-                error=error_msg
+                error=error_msg,
+                market_name=task.market_name,
+                region_name=task.region_name
             )
     
-    def execute_batch(self, locations: List[Location]) -> List[LocationResult]:
-        """Execute searches for a batch of locations concurrently.
+    def execute_batch(self, tasks: List[RoleSearchTask]) -> List[LocationResult]:
+        """Execute a batch of searches concurrently.
         
         Args:
-            locations: List of locations to search
+            tasks: List of search tasks to execute
             
         Returns:
-            List of LocationResults
+            List of results from all searches
         """
         results = []
         
-        with ThreadPoolExecutor(max_workers=self.config.batch_size) as executor:
-            # Submit all tasks
-            future_to_location = {
-                executor.submit(self.search_location, loc): loc 
-                for loc in locations
+        with ThreadPoolExecutor(max_workers=self.config.search.batch_size) as executor:
+            future_to_task = {
+                executor.submit(self.search_location, task): task
+                for task in tasks
             }
             
-            # Collect results as they complete
-            for future in as_completed(future_to_location):
-                location = future_to_location[future]
-                try:
-                    result = future.result(timeout=300)  # 5 minute timeout per location
-                    results.append(result)
-                except Exception as e:
-                    # Handle timeout or other executor errors
-                    results.append(LocationResult(
-                        location=location,
-                        success=False,
-                        error=f"Executor error: {str(e)}"
-                    ))
-                    self.logger.failure(location.name, location.zip_code, f"Executor error: {str(e)}")
+            for future in as_completed(future_to_task):
+                result = future.result()
+                results.append(result)
+                self.results.append(result)
+                
+                # Small delay between completions to avoid rate limiting
+                time.sleep(0.5)
         
         return results
     
     def execute_all(self) -> Dict[str, List[LocationResult]]:
-        """Execute searches for all locations in configuration.
+        """Execute all searches for all roles and locations.
         
         Returns:
-            Dictionary mapping market names to their location results
+            Dictionary mapping market names to their results
         """
-        all_locations = self.config.all_locations
-        total_locations = len(all_locations)
+        # Build list of all search tasks
+        all_tasks = []
         
-        # Calculate number of batches
-        batch_size = self.config.batch_size
-        total_batches = (total_locations + batch_size - 1) // batch_size
+        for region in self.config.regions:
+            for market in region.markets:
+                for center in market.centers:
+                    for role in self.config.roles:
+                        # Only search if market has payband for this role
+                        if market.get_payband(role.id):
+                            task = RoleSearchTask(
+                                role=role,
+                                center=center,
+                                market_name=market.name,
+                                region_name=region.name
+                            )
+                            all_tasks.append(task)
         
-        self.logger.info(f"Starting search for {total_locations} locations in {total_batches} batches")
+        self.logger.info(f"Total search tasks: {len(all_tasks)}")
+        self.logger.info(
+            f"Centers: {len(self.config.all_centers)}, "
+            f"Roles: {len(self.config.roles)}"
+        )
         
-        # Process locations in batches
-        for batch_num in range(total_batches):
-            start_idx = batch_num * batch_size
-            end_idx = min(start_idx + batch_size, total_locations)
-            batch_locations = all_locations[start_idx:end_idx]
-            
-            self.logger.batch_start(batch_num + 1, total_batches, len(batch_locations))
-            
-            # Execute batch
-            batch_results = self.execute_batch(batch_locations)
-            self.results.extend(batch_results)
-            
-            # Log batch completion
-            successful = sum(1 for r in batch_results if r.success)
-            self.logger.batch_complete(
-                batch_num + 1, 
-                total_batches, 
-                successful, 
-                len(batch_locations)
+        # Execute in batches
+        batch_size = self.config.search.batch_size
+        for i in range(0, len(all_tasks), batch_size):
+            batch = all_tasks[i:i + batch_size]
+            self.logger.info(
+                f"Executing batch {i // batch_size + 1} of "
+                f"{(len(all_tasks) + batch_size - 1) // batch_size}"
             )
+            self.execute_batch(batch)
             
-            # Add delay between batches to avoid rate limiting
-            if batch_num < total_batches - 1:
-                time.sleep(5)  # 5 second delay between batches
+            # Delay between batches
+            if i + batch_size < len(all_tasks):
+                time.sleep(2)
         
-        # Organize results by market
+        # Group results by market
         market_results: Dict[str, List[LocationResult]] = {}
         for result in self.results:
-            market = result.location.market
-            if market not in market_results:
-                market_results[market] = []
-            market_results[market].append(result)
+            if result.market_name not in market_results:
+                market_results[result.market_name] = []
+            market_results[result.market_name].append(result)
+        
+        return market_results
+    
+    def execute_for_role(self, role_id: str) -> Dict[str, List[LocationResult]]:
+        """Execute searches for a specific role across all locations.
+        
+        Args:
+            role_id: ID of the role to search for
+            
+        Returns:
+            Dictionary mapping market names to their results
+        """
+        role = self.config.get_role(role_id)
+        if not role:
+            raise ValueError(f"Role not found: {role_id}")
+        
+        # Build list of search tasks for this role
+        tasks = []
+        
+        for region in self.config.regions:
+            for market in region.markets:
+                # Only search if market has payband for this role
+                if market.get_payband(role_id):
+                    for center in market.centers:
+                        task = RoleSearchTask(
+                            role=role,
+                            center=center,
+                            market_name=market.name,
+                            region_name=region.name
+                        )
+                        tasks.append(task)
+        
+        self.logger.info(f"Searching for role '{role.name}' at {len(tasks)} centers")
+        
+        # Execute in batches
+        batch_size = self.config.search.batch_size
+        for i in range(0, len(tasks), batch_size):
+            batch = tasks[i:i + batch_size]
+            self.execute_batch(batch)
+            
+            # Delay between batches
+            if i + batch_size < len(tasks):
+                time.sleep(2)
+        
+        # Group results by market
+        market_results: Dict[str, List[LocationResult]] = {}
+        for result in self.results:
+            if result.role.id == role_id:
+                if result.market_name not in market_results:
+                    market_results[result.market_name] = []
+                market_results[result.market_name].append(result)
         
         return market_results
     
     def get_summary_stats(self) -> Dict[str, int]:
-        """Get summary statistics for execution.
+        """Get summary statistics from all executed searches.
         
         Returns:
             Dictionary with summary statistics
         """
-        successful = sum(1 for r in self.results if r.success)
-        total_jobs = sum(r.jobs_found for r in self.results if r.success)
-        jobs_with_salary = sum(r.jobs_with_salary for r in self.results if r.success)
+        total_tasks = len(self.results)
+        successful_tasks = sum(1 for r in self.results if r.success)
+        total_jobs = sum(r.jobs_found for r in self.results)
+        jobs_with_salary = sum(r.jobs_with_salary for r in self.results)
+        
+        # Count unique locations and roles
+        unique_centers = len(set(r.center.code for r in self.results))
+        unique_roles = len(set(r.role.id for r in self.results))
         
         return {
-            'total_locations': len(self.results),
-            'successful_locations': successful,
-            'failed_locations': len(self.results) - successful,
+            'total_tasks': total_tasks,
+            'successful_tasks': successful_tasks,
+            'total_locations': unique_centers,
+            'successful_locations': unique_centers,  # For backward compat
+            'total_roles': unique_roles,
             'total_jobs': total_jobs,
-            'jobs_with_salary': jobs_with_salary
+            'jobs_with_salary': jobs_with_salary,
+            'success_rate': (successful_tasks / total_tasks * 100) if total_tasks > 0 else 0
         }
+    
+    def get_role_stats(self, role_id: str) -> Dict[str, int]:
+        """Get statistics for a specific role.
+        
+        Args:
+            role_id: ID of the role
+            
+        Returns:
+            Dictionary with role-specific statistics
+        """
+        role_results = [r for r in self.results if r.role.id == role_id]
+        
+        if not role_results:
+            return {
+                'total_tasks': 0,
+                'successful_tasks': 0,
+                'total_jobs': 0,
+                'jobs_with_salary': 0,
+                'success_rate': 0
+            }
+        
+        successful = sum(1 for r in role_results if r.success)
+        total = len(role_results)
+        
+        return {
+            'total_tasks': total,
+            'successful_tasks': successful,
+            'total_jobs': sum(r.jobs_found for r in role_results),
+            'jobs_with_salary': sum(r.jobs_with_salary for r in role_results),
+            'success_rate': (successful / total * 100) if total > 0 else 0
+        }
+
+
+# Backward compatibility function
+def search_location_legacy(
+    config: Config,
+    location: Location,
+    logger: MarketAnalysisLogger
+) -> LocationResult:
+    """Legacy function for searching a single location.
+    
+    Deprecated: Use BatchExecutor.search_location() instead.
+    
+    Args:
+        config: Configuration object
+        location: Location to search
+        logger: Logger instance
+        
+    Returns:
+        LocationResult
+    """
+    import warnings
+    warnings.warn(
+        "search_location_legacy is deprecated. Use BatchExecutor.search_location() instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+    
+    # Create executor and search with first role (backward compat)
+    executor = BatchExecutor(config, logger)
+    
+    # Find matching center
+    for center in config.all_centers:
+        if center.zip_code == location.zip_code:
+            # Use first role for backward compatibility
+            if config.roles:
+                task = RoleSearchTask(
+                    role=config.roles[0],
+                    center=center,
+                    market_name=location.market,
+                    region_name=location.region
+                )
+                return executor.search_location(task)
+    
+    # No matching center found
+    return LocationResult(
+        center=Center(
+            code="unknown",
+            name=location.name,
+            address_1=location.address,
+            city="",
+            state="",
+            zip_code=location.zip_code
+        ),
+        role=config.roles[0] if config.roles else Role(
+            id="unknown",
+            name="Unknown",
+            pay_type="salary",
+            default_unit="USD/year"
+        ),
+        success=False,
+        error="Location not found in configuration",
+        market_name=location.market,
+        region_name=location.region
+    )
