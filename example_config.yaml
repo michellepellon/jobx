@@ -1,0 +1,41 @@
+# Example configuration
+
+meta:
+  version: 1
+  currency_default: "USD"
+  unit_defaults:
+    hourly: "USD/hour"
+    salary: "USD/year"
+
+roles:
+  - id: rbt
+    name: "Registered Behavior Technician RBT"
+    pay_type: "hourly"
+    default_unit: "USD/hour"
+  - id: bcba
+    name: "Board Certified Behavioral Analyst"
+    pay_type: "salary"
+    default_unit: "USD/year"
+
+search:
+  radius_miles: 25  
+  results_per_location: 200
+  batch_size: 5
+
+regions:
+  - name: "Central"
+
+    markets:
+      - name: "Texas"
+        paybands:
+          rbt:  { min: 15.00, max: 22.50, currency: "USD", unit: "USD/hour", pay_type: "hourly" }
+          bcba: { min: 84500, max: 119000, currency: "USD", unit: "USD/year", pay_type: "salary" }
+
+        centers:
+          - code: "HOU-NASA"
+            name: "NASA"
+            address_1: "16441 Space Center Blvd"
+            address_2: "Building A, Suite 200"
+            city: "Houston"
+            state: "TX"
+            zip_code: "77058"
