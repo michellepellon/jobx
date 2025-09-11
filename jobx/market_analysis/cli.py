@@ -12,6 +12,7 @@ from jobx.market_analysis.config_loader import Config, load_config, validate_con
 from jobx.market_analysis.data_aggregator import DataAggregator
 from jobx.market_analysis.logger import setup_logger
 from jobx.market_analysis.report_generator import ReportGenerator
+from jobx.market_analysis.visualization import CompensationBandVisualizer
 
 
 def main():
@@ -70,6 +71,18 @@ Examples:
         help="Migrate old config format to new format (provide output path)",
     )
     
+    parser.add_argument(
+        "--visualize",
+        action="store_true",
+        help="Generate compensation band visualization charts",
+    )
+    
+    parser.add_argument(
+        "--visualize-only",
+        action="store_true",
+        help="Only generate visualizations without running job searches",
+    )
+    
     args = parser.parse_args()
     
     # Handle migration
@@ -118,6 +131,35 @@ Examples:
         
         if args.dry_run:
             print("\nDry run complete. Configuration is valid.")
+            return 0
+        
+        # Handle visualize-only mode
+        if args.visualize_only:
+            # Create minimal output directory for charts
+            if args.output:
+                output_dir = Path(args.output)
+            else:
+                date_str = datetime.now().strftime("%Y-%m-%d")
+                output_dir = Path(f"{date_str}_Compensation_Charts")
+            
+            output_dir.mkdir(parents=True, exist_ok=True)
+            print(f"\nOutput directory: {output_dir}")
+            
+            # Generate visualizations
+            print("\nGenerating compensation band charts...")
+            visualizer = CompensationBandVisualizer(output_dir)
+            
+            # Load config as dict for visualization
+            import yaml
+            with open(args.config, 'r') as f:
+                config_dict = yaml.safe_load(f)
+            
+            generated_charts = visualizer.generate_all_charts(config_dict, aggregated_markets)
+            
+            print(f"\nGenerated {len(generated_charts)} charts:")
+            for chart_path in generated_charts:
+                print(f"  - {chart_path}")
+            
             return 0
         
         # Create output directory
@@ -178,6 +220,22 @@ Examples:
         # ReportGenerator expects 3 args: output_dir, job_title, logger
         report_gen = ReportGenerator(output_dir, report_title, logger)
         generated_files = report_gen.generate_all_reports(aggregated_markets)
+        
+        # Generate visualizations if requested
+        if args.visualize:
+            print("\nGenerating compensation band charts...")
+            visualizer = CompensationBandVisualizer(output_dir)
+            
+            # Load config as dict for visualization
+            import yaml
+            with open(args.config, 'r') as f:
+                config_dict = yaml.safe_load(f)
+            
+            generated_charts = visualizer.generate_all_charts(config_dict, aggregated_markets)
+            generated_files.extend(generated_charts)
+            
+            print(f"Generated {len(generated_charts)} visualization charts")
+            logger.info(f"Generated {len(generated_charts)} compensation band charts")
         
         # Generate role comparison if multiple roles
         if not args.role and len(config.roles) > 1:

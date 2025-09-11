@@ -90,6 +90,7 @@ class Center:
     state: str
     zip_code: str
     address_2: Optional[str] = None
+    paybands: Dict[str, Payband] = field(default_factory=dict)
     
     @property
     def full_address(self) -> str:
@@ -104,6 +105,17 @@ class Center:
     def search_location(self) -> str:
         """Get location string for job searches."""
         return self.zip_code
+    
+    def get_payband(self, role_id: str) -> Optional[Payband]:
+        """Get payband for a specific role.
+        
+        Args:
+            role_id: Role identifier
+            
+        Returns:
+            Payband if exists, None otherwise
+        """
+        return self.paybands.get(role_id)
 
 
 @dataclass
@@ -430,6 +442,18 @@ def _load_new_config(data: Dict[str, Any]) -> Config:
             
             # Parse centers
             for center_data in market_data.get('centers', []):
+                # Parse center-level paybands if they exist
+                center_paybands = {}
+                if 'paybands' in center_data:
+                    for role_id, pb_data in center_data['paybands'].items():
+                        center_paybands[role_id] = Payband(
+                            min=pb_data['min'],
+                            max=pb_data['max'],
+                            currency=pb_data.get('currency', meta.currency_default),
+                            unit=pb_data.get('unit'),
+                            pay_type=PayType(pb_data.get('pay_type', 'hourly'))
+                        )
+                
                 center = Center(
                     code=center_data['code'],
                     name=center_data['name'],
@@ -437,7 +461,8 @@ def _load_new_config(data: Dict[str, Any]) -> Config:
                     address_2=center_data.get('address_2'),
                     city=center_data['city'],
                     state=center_data['state'],
-                    zip_code=str(center_data['zip_code'])
+                    zip_code=str(center_data['zip_code']),
+                    paybands=center_paybands
                 )
                 market.centers.append(center)
             

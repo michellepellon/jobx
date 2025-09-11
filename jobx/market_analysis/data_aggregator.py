@@ -259,6 +259,48 @@ class DataAggregator:
         
         return df
     
+    def _aggregate_market_payband(self, market: Market, role_id: str) -> Optional[Payband]:
+        """Aggregate center-level paybands to market level.
+        
+        Args:
+            market: Market configuration
+            role_id: ID of the role
+            
+        Returns:
+            Aggregated payband or None if no centers have paybands
+        """
+        # Try market-level payband first (for backward compatibility)
+        market_payband = market.get_payband(role_id)
+        if market_payband:
+            return market_payband
+        
+        # Aggregate from center-level paybands
+        center_paybands = []
+        for center in market.centers:
+            if hasattr(center, 'get_payband'):
+                center_payband = center.get_payband(role_id)
+                if center_payband:
+                    center_paybands.append(center_payband)
+        
+        if not center_paybands:
+            return None
+        
+        # Aggregate: use min of mins and max of maxs
+        min_values = [pb.min for pb in center_paybands]
+        max_values = [pb.max for pb in center_paybands]
+        
+        # Use the first payband as template for other fields
+        template = center_paybands[0]
+        
+        from jobx.market_analysis.config_loader import Payband
+        return Payband(
+            min=min(min_values),
+            max=max(max_values),
+            currency=template.currency,
+            unit=template.unit,
+            pay_type=template.pay_type
+        )
+    
     def _remove_outliers(self, df: pd.DataFrame, role: Optional[Role] = None, 
                         iqr_multiplier: float = 1.5) -> pd.DataFrame:
         """Remove salary outliers using IQR method.
@@ -317,8 +359,8 @@ class DataAggregator:
         total_locations = len(role_results)
         successful_locations = sum(1 for r in role_results if r.success)
         
-        # Get payband for this role in this market
-        payband = market.get_payband(role.id)
+        # Aggregate paybands from centers in this market for this role
+        payband = self._aggregate_market_payband(market, role.id)
         
         # Combine all job dataframes
         job_dfs = [r.jobs_df for r in role_results if r.success and r.jobs_df is not None]
@@ -406,7 +448,12 @@ class DataAggregator:
         # Aggregate by role
         role_data = {}
         for role in self.config.roles:
-            if market.get_payband(role.id):
+            # Check if any center in this market has a payband for this role
+            has_role_payband = any(
+                hasattr(center, 'get_payband') and center.get_payband(role.id) 
+                for center in market.centers
+            )
+            if has_role_payband or market.get_payband(role.id):
                 role_market_data = self.aggregate_role_market(market, role, location_results)
                 role_data[role.id] = role_market_data
         

@@ -183,8 +183,13 @@ class BatchExecutor:
             for market in region.markets:
                 for center in market.centers:
                     for role in self.config.roles:
-                        # Only search if market has payband for this role
-                        if market.get_payband(role.id):
+                        # Check if center has payband for this role
+                        center_payband = center.get_payband(role.id) if hasattr(center, 'get_payband') else None
+                        # Fall back to market payband if center doesn't have one
+                        market_payband = market.get_payband(role.id)
+                        
+                        # Only search if either center or market has payband for this role
+                        if center_payband or market_payband:
                             task = RoleSearchTask(
                                 role=role,
                                 center=center,

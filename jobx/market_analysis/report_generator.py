@@ -149,7 +149,10 @@ class ReportGenerator:
         summary_data.append(['Overall Statistics'])
         summary_data.append(['Total Locations Searched', total_locations])
         summary_data.append(['Successful Location Searches', successful_locations])
-        summary_data.append(['Success Rate', f'{(successful_locations/total_locations)*100:.1f}%'])
+        if total_locations > 0:
+            summary_data.append(['Success Rate', f'{(successful_locations/total_locations)*100:.1f}%'])
+        else:
+            summary_data.append(['Success Rate', 'N/A'])
         summary_data.append(['Total Jobs Found', total_jobs])
         summary_data.append(['Jobs with Salary Data', jobs_with_salary])
         summary_data.append(['Salary Data Rate', f'{(jobs_with_salary/total_jobs)*100:.1f}%' if total_jobs > 0 else 'N/A'])

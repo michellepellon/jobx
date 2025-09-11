@@ -35,7 +35,6 @@ regions:
           - code: "HOU-NASA"
             name: "NASA"
             address_1: "16441 Space Center Blvd"
-            address_2: "Building A, Suite 200"
             city: "Houston"
             state: "TX"
             zip_code: "77058"
