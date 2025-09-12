@@ -154,7 +154,7 @@ class BatchExecutor:
                         location=task.center.search_location,
                         distance=self.config.search.radius_miles,
                         results_wanted=self.config.search.results_per_location,
-                        is_remote=True,  # Include all positions
+                        is_remote=False,  # Only include jobs within the specified radius
                         country_indeed="usa",
                         linkedin_fetch_description=True,  # CRITICAL: Fetch full job details from LinkedIn
                         verbose=0  # Suppress jobx output
