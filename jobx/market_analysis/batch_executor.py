@@ -79,8 +79,12 @@ class BatchExecutor:
             
             # Search for all search terms and combine results
             all_dfs = []
-            for search_term in task.role.search_terms:
+            for i, search_term in enumerate(task.role.search_terms):
                 try:
+                    # Add small delay between searches to avoid rate limiting
+                    if i > 0:
+                        time.sleep(2)
+                    
                     df_term = scrape_jobs(
                         site_name=["linkedin", "indeed"],
                         search_term=search_term,
@@ -96,7 +100,9 @@ class BatchExecutor:
                         df_term['search_term_used'] = search_term
                         all_dfs.append(df_term)
                 except Exception as e:
+                    import traceback
                     self.logger.error(f"Error searching for '{search_term}': {str(e)}")
+                    self.logger.error(f"Traceback: {traceback.format_exc()}")
                     continue
             
             # Combine all results and remove duplicates based on job URL
