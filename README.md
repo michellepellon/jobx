@@ -69,6 +69,70 @@ export JOBX_MY_COMPANY="Acme Corp,Acme Inc"
 jobx -q "data scientist" -l "Remote" --track-serp -o tracked_jobs.parquet -f parquet
 ```
 
+## 📊 Market Analysis Tool
+
+### Comprehensive Compensation Analysis
+
+jobx includes a powerful market analysis tool for analyzing compensation data across geographic regions with support for:
+- **Multi-location job searches** across configured markets and centers
+- **Center-level payband comparison** with actual market data
+- **Tufte-style visualization** comparing your paybands to market statistics
+- **Statistical analysis** with percentiles, IQR, and distribution metrics
+
+```bash
+# Run market analysis with visualization
+source venv/bin/activate
+python -m jobx.market_analysis.cli config.yaml --visualize --min-sample 10 -v -o output_dir
+
+# Options:
+#   --visualize         Generate compensation comparison charts
+#   --visualize-only    Only generate charts from existing data (skip job searches)
+#   --min-sample N      Minimum salary data points required (default: 30)
+#   -v, --verbose       Show detailed progress
+#   -o, --output        Output directory name
+```
+
+### Configuration Structure
+
+The market analysis tool uses a YAML configuration with hierarchical structure:
+
+```yaml
+roles:
+  - id: rbt
+    name: "Registered Behavior Technician (RBT)"
+    pay_type: hourly
+    search_terms: ["RBT", "behavior technician", "ABA therapist"]
+  - id: bcba
+    name: "Board Certified Behavior Analyst (BCBA)"
+    pay_type: salary
+    search_terms: ["BCBA", "behavior analyst", "clinical supervisor"]
+
+regions:
+  - name: "Southeast"
+    markets:
+      - name: "Florida"
+        centers:
+          - name: "Miami"
+            location: "Miami, FL"
+            paybands:
+              rbt: {min: 18.00, max: 22.00}
+              bcba: {min: 70000, max: 85000}
+          - name: "Orlando"
+            location: "Orlando, FL"
+            paybands:
+              rbt: {min: 17.00, max: 21.00}
+              bcba: {min: 68000, max: 82000}
+```
+
+### Visualization Output
+
+The tool generates Tufte-style comparison charts showing:
+- **Your payband range** (light green background area)
+- **Market IQR** (25th-75th percentile box in gray)
+- **Market median** (bold black line)
+- **Min/max whiskers** from actual job data
+- **Gap analysis** showing if market median is within/above/below your band
+
 ## 🎯 Advanced Usage
 
 ### Confidence Scoring

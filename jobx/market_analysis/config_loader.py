@@ -38,11 +38,15 @@ class Role:
     name: str
     pay_type: PayType
     default_unit: str
+    search_terms: List[str] = field(default_factory=list)
     
     def __post_init__(self):
         """Validate and convert pay_type to enum."""
         if isinstance(self.pay_type, str):
             self.pay_type = PayType(self.pay_type)
+        # If no search_terms provided, use the name as default
+        if not self.search_terms:
+            self.search_terms = [self.name]
 
 
 @dataclass

@@ -77,17 +77,35 @@ class BatchExecutor:
                 f"for role: {task.role.name}"
             )
             
-            # Use jobx scrape_jobs function
-            df = scrape_jobs(
-                site_name=["linkedin", "indeed"],
-                search_term=task.role.name,
-                location=task.center.search_location,
-                distance=self.config.search.radius_miles,
-                results_wanted=self.config.search.results_per_location,
-                is_remote=True,  # Include all positions
-                country_indeed="usa",
-                verbose=0  # Suppress jobx output
-            )
+            # Search for all search terms and combine results
+            all_dfs = []
+            for search_term in task.role.search_terms:
+                try:
+                    df_term = scrape_jobs(
+                        site_name=["linkedin", "indeed"],
+                        search_term=search_term,
+                        location=task.center.search_location,
+                        distance=self.config.search.radius_miles,
+                        results_wanted=self.config.search.results_per_location,
+                        is_remote=True,  # Include all positions
+                        country_indeed="usa",
+                        verbose=0  # Suppress jobx output
+                    )
+                    if not df_term.empty:
+                        # Add search term used for this result
+                        df_term['search_term_used'] = search_term
+                        all_dfs.append(df_term)
+                except Exception as e:
+                    self.logger.error(f"Error searching for '{search_term}': {str(e)}")
+                    continue
+            
+            # Combine all results and remove duplicates based on job URL
+            if all_dfs:
+                df = pd.concat(all_dfs, ignore_index=True)
+                # Remove duplicates based on job_url, keeping first occurrence
+                df = df.drop_duplicates(subset=['job_url'], keep='first')
+            else:
+                df = pd.DataFrame()
             
             if df.empty:
                 return LocationResult(

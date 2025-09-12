@@ -1,0 +1,46 @@
+roles:
+  - id: rbt
+    name: "Registered Behavior Technician (RBT)"
+    pay_type: hourly
+    default_unit: USD/hour
+    search_terms:
+      - "RBT"
+      - "Registered Behavior Technician"
+      - "behavior technician"
+      - "ABA therapist"
+      - "behavioral therapist"
+  - id: bcba
+    name: "Board Certified Behavior Analyst (BCBA)"
+    pay_type: salary
+    default_unit: USD/year
+    search_terms:
+      - "BCBA"
+      - "Board Certified Behavior Analyst"
+      - "behavior analyst"
+      - "clinical supervisor ABA"
+      - "BCBA supervisor"
+
+search:
+  radius_miles: 50
+  results_per_location: 100
+  batch_size: 5
+
+regions:
+  - name: "Test Region"
+    markets:
+      - name: "Test Market"
+        centers:
+          - code: "TEST-001"
+            name: "Miami"
+            address_1: "123 Main St"
+            city: "Miami"
+            state: "FL"
+            zip_code: "33101"
+            search_location: "Miami, FL"
+            paybands:
+              rbt:
+                min: 18.00
+                max: 22.00
+              bcba:
+                min: 70000
+                max: 85000
