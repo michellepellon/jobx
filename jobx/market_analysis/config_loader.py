@@ -401,11 +401,15 @@ def _load_new_config(data: Dict[str, Any]) -> Config:
     
     roles = []
     for role_data in data['roles']:
+        # Get search terms - if not specified, use the role name
+        search_terms = role_data.get('search_terms', [role_data['name']])
+        
         role = Role(
             id=role_data['id'],
             name=role_data['name'],
             pay_type=role_data['pay_type'],
-            default_unit=role_data.get('default_unit', '')
+            default_unit=role_data.get('default_unit', ''),
+            search_terms=search_terms
         )
         roles.append(role)
     
