@@ -533,15 +533,23 @@ def extract_salary(
 
     if not interval:
         # Fall back to threshold-based detection
-        if min_salary < hourly_threshold:
-            interval = CompensationInterval.HOURLY.value
-        elif min_salary < monthly_threshold:
-            interval = CompensationInterval.MONTHLY.value
+        if min_salary is not None:
+            if min_salary < hourly_threshold:
+                interval = CompensationInterval.HOURLY.value
+            elif min_salary < monthly_threshold:
+                interval = CompensationInterval.MONTHLY.value
+            else:
+                interval = CompensationInterval.YEARLY.value
         else:
+            # Default to yearly if no salary to check
             interval = CompensationInterval.YEARLY.value
 
     # Convert to annual if requested
     if enforce_annual_salary:
+        # Check for None values before calculations
+        if min_salary is None or max_salary is None:
+            return None, None, None, None
+            
         annual_min_salary = min_salary
         annual_max_salary = max_salary
 
@@ -568,6 +576,10 @@ def extract_salary(
         else:
             return None, None, None, None
     else:
+        # Check for None values before calculations
+        if min_salary is None or max_salary is None:
+            return None, None, None, None
+            
         # Validate against limits (check annualized values)
         check_min = min_salary
         check_max = max_salary
