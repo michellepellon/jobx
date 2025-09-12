@@ -17,6 +17,10 @@ from jobx.market_analysis.logger import MarketAnalysisLogger
 from jobx.market_analysis.anti_detection_utils import (
     SmartScheduler, SearchMonitor, SafetyManager
 )
+from jobx.market_analysis.location_filter import (
+    LocationFilter,
+    filter_jobs_by_location
+)
 
 
 @dataclass
@@ -187,12 +191,34 @@ class BatchExecutor:
                     region_name=task.region_name
                 )
             
-            # Count jobs with salary data
+            # Apply location filtering to remove remote/distant jobs
+            original_count = len(df)
+            if len(df) > 0:
+                location_filter = LocationFilter(
+                    center_city=task.center.city,
+                    center_state=task.center.state,
+                    center_zip=task.center.zip_code,
+                    radius_miles=self.config.search.radius_miles
+                )
+                df_filtered, df_excluded, filter_stats = filter_jobs_by_location(
+                    df, location_filter
+                )
+                
+                # Log filtering statistics
+                self.logger.debug(f"Location filtering for {task.center.name}:")
+                self.logger.debug(f"  - Original jobs: {original_count}")
+                self.logger.debug(f"  - Local jobs: {len(df_filtered)} ({filter_stats['local_percentage']:.1f}%)")
+                self.logger.debug(f"  - Excluded (remote/distant): {len(df_excluded)} ({filter_stats['excluded_percentage']:.1f}%)")
+                
+                # Use filtered DataFrame for all subsequent operations
+                df = df_filtered
+            
+            # Count jobs with salary data (after filtering)
             salary_mask = df['min_amount'].notna() | df['max_amount'].notna()
             jobs_with_salary = salary_mask.sum()
             
-            # Debug: Log salary data stats
-            self.logger.debug(f"Salary data analysis for {task.center.name}:")
+            # Debug: Log salary data stats (after filtering)
+            self.logger.debug(f"Salary data analysis for {task.center.name} (after location filtering):")
             self.logger.debug(f"  - Total jobs: {len(df)}")
             self.logger.debug(f"  - Jobs with min_amount: {df['min_amount'].notna().sum()}")
             self.logger.debug(f"  - Jobs with max_amount: {df['max_amount'].notna().sum()}")
