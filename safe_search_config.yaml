@@ -1,0 +1,29 @@
+meta:
+  version: 1
+  currency_default: USD
+  unit_defaults:
+    hourly: USD/hour
+    salary: USD/year
+
+roles:
+- id: bcba
+  name: Board Certified Behavioral Analyst
+  pay_type: salary
+  default_unit: USD/year
+  search_terms:
+  # Rotate through different search terms to avoid pattern detection
+  - BCBA
+  - Board Certified Behavior Analyst
+  - behavior analyst
+  - clinical supervisor ABA
+
+search:
+  radius_miles: 30  # Smaller radius = fewer results
+  results_per_location: 75  # Lower number to avoid triggering limits
+  batch_size: 1  # Sequential processing
+  
+# Add custom delay settings (would need code support)
+delays:
+  between_searches: [5, 15]  # Random delay 5-15 seconds
+  between_locations: [30, 60]  # Random delay 30-60 seconds
+  between_terms: [3, 8]  # Random delay 3-8 seconds

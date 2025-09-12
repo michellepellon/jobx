@@ -14,6 +14,9 @@ import pandas as pd
 from jobx import scrape_jobs
 from jobx.market_analysis.config_loader import Center, Config, Location, Role
 from jobx.market_analysis.logger import MarketAnalysisLogger
+from jobx.market_analysis.anti_detection_utils import (
+    SmartScheduler, SearchMonitor, SafetyManager
+)
 
 
 @dataclass
@@ -51,15 +54,30 @@ class RoleSearchTask:
 class BatchExecutor:
     """Executes job searches in batches with concurrency control."""
     
-    def __init__(self, config: Config, logger: MarketAnalysisLogger):
-        """Initialize batch executor.
+    def __init__(self, config: Config, logger: MarketAnalysisLogger, 
+                 output_dir: str = ".", enable_safety: bool = True):
+        """Initialize batch executor with anti-detection features.
         
         Args:
             config: Configuration with locations and settings
             logger: Logger instance
+            output_dir: Output directory for monitoring files
+            enable_safety: Enable anti-detection safety features
         """
         self.config = config
         self.logger = logger
+        self.output_dir = output_dir
+        self.enable_safety = enable_safety
+        
+        # Initialize anti-detection components
+        if self.enable_safety:
+            self.scheduler = SmartScheduler()
+            self.monitor = SearchMonitor(output_dir)
+            self.safety = SafetyManager(output_dir)
+        else:
+            self.scheduler = None
+            self.monitor = None
+            self.safety = None
         self.results: List[LocationResult] = []
     
     def search_location(self, task: RoleSearchTask) -> LocationResult:
@@ -71,19 +89,64 @@ class BatchExecutor:
         Returns:
             LocationResult with search results or error
         """
+        # Check if center already completed (when using safety features)
+        if self.safety and self.safety.is_center_complete(task.center.code):
+            self.logger.info(f"Skipping {task.center.name} - already completed")
+            return LocationResult(
+                center=task.center,
+                role=task.role,
+                success=True,
+                jobs_df=pd.DataFrame(),
+                jobs_found=0,
+                jobs_with_salary=0,
+                market_name=task.market_name,
+                region_name=task.region_name
+            )
+        
+        # Check if we should pause based on failure patterns
+        if self.monitor:
+            should_pause, reason = self.monitor.should_pause()
+            if should_pause:
+                self.logger.warning(f"Pausing searches: {reason}")
+                # Wait with smart scheduling
+                if self.scheduler:
+                    delay = self.scheduler.get_human_like_delay(60)
+                    self.logger.info(f"Waiting {delay:.0f} seconds before resuming...")
+                    time.sleep(delay)
+        
         try:
             self.logger.debug(
                 f"Searching {task.center.name} ({task.center.zip_code}) "
                 f"for role: {task.role.name}"
             )
             
-            # Search for all search terms and combine results
+            # Use smart scheduling delay before search
+            if self.scheduler:
+                delay = self.scheduler.get_human_like_delay()
+                time.sleep(delay)
+            
+            # Randomly select 4-6 search terms to use for this location
+            import random
+            if len(task.role.search_terms) >= 4:
+                num_terms = random.randint(4, min(6, len(task.role.search_terms)))
+                selected_terms = random.sample(task.role.search_terms, num_terms)
+            else:
+                # Use all available search terms if less than 4
+                selected_terms = task.role.search_terms
+                num_terms = len(selected_terms)
+            
+            self.logger.info(
+                f"Using {num_terms} search terms for {task.center.name}: {', '.join(selected_terms[:2])}..."
+            )
+            
+            # Search for selected search terms and combine results
             all_dfs = []
-            for i, search_term in enumerate(task.role.search_terms):
+            for i, search_term in enumerate(selected_terms):
                 try:
-                    # Add small delay between searches to avoid rate limiting
+                    # Add random delay between searches to avoid rate limiting
                     if i > 0:
-                        time.sleep(2)
+                        delay = random.uniform(3, 8)  # Random delay between 3-8 seconds
+                        time.sleep(delay)
                     
                     df_term = scrape_jobs(
                         site_name=["linkedin", "indeed"],
@@ -144,6 +207,19 @@ class BatchExecutor:
                 jobs_with_salary
             )
             
+            # Record success in monitor
+            if self.monitor:
+                self.monitor.record_search(
+                    f"{task.center.name} ({task.center.zip_code})",
+                    True,
+                    len(df),
+                    None
+                )
+            
+            # Mark center as complete
+            if self.safety:
+                self.safety.mark_center_complete(task.center.code)
+            
             return LocationResult(
                 center=task.center,
                 role=task.role,
@@ -158,6 +234,16 @@ class BatchExecutor:
         except Exception as e:
             error_msg = str(e)
             self.logger.failure(task.center.name, task.center.zip_code, error_msg)
+            
+            # Record failure in monitor
+            if self.monitor:
+                self.monitor.record_search(
+                    f"{task.center.name} ({task.center.zip_code})",
+                    False,
+                    0,
+                    error_msg
+                )
+            
             return LocationResult(
                 center=task.center,
                 role=task.role,
@@ -177,6 +263,9 @@ class BatchExecutor:
             List of results from all searches
         """
         results = []
+        
+        # Add random delay between location searches
+        import random
         
         with ThreadPoolExecutor(max_workers=self.config.search.batch_size) as executor:
             future_to_task = {
@@ -200,13 +289,40 @@ class BatchExecutor:
         Returns:
             Dictionary mapping market names to their results
         """
+        # Check if good time to search (when using safety features)
+        if self.scheduler:
+            self.scheduler.wait_for_good_time(self.logger)
+        
         # Build list of all search tasks
         all_tasks = []
         
-        for region in self.config.regions:
-            for market in region.markets:
-                for center in market.centers:
-                    for role in self.config.roles:
+        # Randomize regions if using safety features
+        regions = list(self.config.regions)
+        if self.safety:
+            import random
+            random.shuffle(regions)
+            self.logger.info("Randomized region order for anti-detection")
+        
+        for region in regions:
+            # Randomize markets within region
+            markets = list(region.markets)
+            if self.safety:
+                random.shuffle(markets)
+            
+            for market in markets:
+                # Get randomized centers if using safety features
+                if self.safety:
+                    centers = self.safety.get_randomized_centers(market.centers)
+                else:
+                    centers = market.centers
+                
+                for center in centers:
+                    # Randomize roles for each center
+                    roles = list(self.config.roles)
+                    if self.safety:
+                        random.shuffle(roles)
+                    
+                    for role in roles:
                         # Check if center has payband for this role
                         center_payband = center.get_payband(role.id) if hasattr(center, 'get_payband') else None
                         # Fall back to market payband if center doesn't have one

@@ -83,6 +83,18 @@ Examples:
         help="Only generate visualizations without running job searches",
     )
     
+    parser.add_argument(
+        "--safe-mode",
+        action="store_true",
+        help="Enable anti-detection features (smart scheduling, monitoring, progress tracking)",
+    )
+    
+    parser.add_argument(
+        "--no-safety",
+        action="store_true",
+        help="Disable all anti-detection safety features (not recommended)",
+    )
+    
     args = parser.parse_args()
     
     # Handle migration
@@ -193,7 +205,15 @@ Examples:
         
         # Execute searches
         print("\nStarting job searches...")
-        executor = BatchExecutor(config, logger)
+        # Determine safety mode (default is enabled unless explicitly disabled)
+        enable_safety = not args.no_safety
+        if args.safe_mode:
+            enable_safety = True
+            print("✓ Anti-detection safety features enabled")
+        elif args.no_safety:
+            print("⚠️  Warning: Anti-detection safety features disabled")
+        
+        executor = BatchExecutor(config, logger, output_dir=str(output_dir), enable_safety=enable_safety)
         
         if args.role:
             # Search for specific role
@@ -273,6 +293,13 @@ Examples:
                 total_markets=len(aggregated_markets),
                 elapsed_time=elapsed_time
             )
+        
+        # Show safety report if enabled
+        if enable_safety and hasattr(executor, 'monitor') and executor.monitor:
+            print("\n" + "=" * 60)
+            print("ANTI-DETECTION REPORT")
+            print("=" * 60)
+            print(executor.monitor.get_summary())
         
         # Print summary to console
         print("\n" + "=" * 60)
