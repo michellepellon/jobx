@@ -271,6 +271,9 @@ class LinkedIn(Scraper):
         if full_descr:
             job_details = self._get_job_details(job_id)
             description = job_details.get("description")
+            # Use extracted compensation if no salary tag was found
+            if not compensation and job_details.get("extracted_compensation"):
+                compensation = job_details.get("extracted_compensation")
         location_str = location.display_location() if location else ""
         is_remote = is_remote_job(title, description or "", location_str)
 
@@ -305,9 +308,13 @@ class LinkedIn(Scraper):
                 f"{self.base_url}/jobs/view/{job_id}", timeout=5
             )
             response.raise_for_status()
-        except Exception:
+        except Exception as e:
+            import logging
+            logging.debug(f"Failed to fetch job details for {job_id}: {e}")
             return {}
         if "linkedin.com/signup" in response.url:
+            import logging
+            logging.debug(f"Hit signup wall for job {job_id}, URL: {response.url}")
             return {}
 
         soup = BeautifulSoup(response.text, "html.parser")
@@ -339,6 +346,11 @@ class LinkedIn(Scraper):
             if logo_image and hasattr(logo_image, 'get')
             else None
         )
+        # Try to extract salary from description if available
+        extracted_compensation = None
+        if description:
+            extracted_compensation = self._extract_salary_from_description(description)
+        
         return {
             "description": description,
             "job_level": parse_job_level(soup),
@@ -347,8 +359,114 @@ class LinkedIn(Scraper):
             "job_url_direct": self._parse_job_url_direct(soup),
             "company_logo": company_logo,
             "job_function": job_function,
+            "extracted_compensation": extracted_compensation,
         }
 
+    def _extract_salary_from_description(self, description: str) -> Optional[Compensation]:
+        """Extract salary information from job description text.
+        
+        Looks for common salary patterns like:
+        - $X - $Y per hour/year
+        - Pay: $X to $Y
+        - Salary: $X-$Y
+        - Base pay range: $X-$Y
+        - Up to $X per year
+        """
+        import re
+        
+        # Remove HTML tags if present
+        text = re.sub(r'<[^>]+>', ' ', description)
+        
+        # Skip if no dollar signs (quick optimization)
+        if '$' not in text and 'salary' not in text.lower() and 'compensation' not in text.lower():
+            return None
+        
+        # Remove 401k mentions to avoid false matches
+        text = re.sub(r'401\s*\(?k\)?', '', text, flags=re.IGNORECASE)
+        
+        # Look for salary ranges first (more specific patterns)
+        range_patterns = [
+            # $65.00 - $70.00 per hour or $65,000 - $70,000 per year
+            r'\$?([\d,]+(?:\.\d{2})?)\s*[-–]\s*\$?([\d,]+(?:\.\d{2})?)\s*(?:per|/)\s*(hour|hr|year|yr|annually)',
+            # Pay: $X - $Y or Salary: $X to $Y
+            r'(?:Pay|Salary|Compensation|Base pay range)[:\s]+\$?([\d,]+(?:\.\d{2})?)\s*(?:[-–]|to)\s*\$?([\d,]+(?:\.\d{2})?)',
+            # $65-$70 (with explicit $/hour or per year nearby)
+            r'\$?([\d,]+(?:\.\d{2})?)\s*[-–]\s*\$?([\d,]+(?:\.\d{2})?)\s*(?=/|\s*(?:hour|hr|year|yr|annually))',
+        ]
+        
+        for pattern in range_patterns:
+            matches = re.search(pattern, text, re.IGNORECASE)
+            if matches:
+                try:
+                    # Extract the numbers
+                    min_str = matches.group(1).replace(',', '')
+                    max_str = matches.group(2).replace(',', '')
+                    
+                    min_amount = float(min_str)
+                    max_amount = float(max_str)
+                    
+                    # Check if it's hourly and convert to annual (assuming 2080 hours/year)
+                    if len(matches.groups()) > 2 and matches.group(3):
+                        period = matches.group(3)
+                        if period.lower() in ['hour', 'hr', 'hourly']:
+                            min_amount = min_amount * 2080
+                            max_amount = max_amount * 2080
+                    
+                    # Only return if values seem reasonable
+                    if min_amount > 10 and max_amount > 10:  # Basic sanity check
+                        # If values are under 200, likely hourly - convert to annual
+                        if max_amount < 200:
+                            min_amount = min_amount * 2080
+                            max_amount = max_amount * 2080
+                        
+                        # Final reasonableness check for annual salary
+                        if 20000 <= max_amount <= 500000:
+                            return Compensation(
+                                min_amount=int(min_amount),
+                                max_amount=int(max_amount),
+                                currency="USD"
+                            )
+                except (ValueError, IndexError):
+                    continue
+        
+        # Look for single salary amounts (less specific)
+        single_patterns = [
+            # "Up to $120,000 per year"
+            r'(?:up to|salary of|compensation of)\s*\$?([\d,]+(?:\.\d{2})?)\s*(?:per|/)\s*(hour|hr|year|yr|annually)',
+            # "$120,000 per year" or "$50/hour"
+            r'\$?([\d,]+(?:\.\d{2})?)\s*(?:per|/)\s*(hour|hr|year|yr|annually)',
+        ]
+        
+        for pattern in single_patterns:
+            matches = re.search(pattern, text, re.IGNORECASE)
+            if matches:
+                try:
+                    amount_str = matches.group(1).replace(',', '')
+                    amount = float(amount_str)
+                    
+                    # Check if it's hourly and convert to annual
+                    if len(matches.groups()) > 1 and matches.group(2):
+                        period = matches.group(2)
+                        if period.lower() in ['hour', 'hr', 'hourly']:
+                            amount = amount * 2080
+                    
+                    # If value is under 200, likely hourly - convert to annual
+                    elif amount < 200:
+                        amount = amount * 2080
+                    
+                    # Final reasonableness check
+                    if 20000 <= amount <= 500000:
+                        # For single amounts, use same value for min and max
+                        return Compensation(
+                            min_amount=int(amount * 0.9),  # Use 90% as min
+                            max_amount=int(amount),
+                            currency="USD"
+                        )
+                except (ValueError, IndexError):
+                    continue
+        
+        return None
+    
     def _get_location(self, metadata_card: Optional[Tag]) -> Location:
         """Extracts the location data from the job metadata card.
 

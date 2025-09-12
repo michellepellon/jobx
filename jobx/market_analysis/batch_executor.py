@@ -156,6 +156,7 @@ class BatchExecutor:
                         results_wanted=self.config.search.results_per_location,
                         is_remote=True,  # Include all positions
                         country_indeed="usa",
+                        linkedin_fetch_description=True,  # CRITICAL: Fetch full job details from LinkedIn
                         verbose=0  # Suppress jobx output
                     )
                     if not df_term.empty:
@@ -190,6 +191,15 @@ class BatchExecutor:
             salary_mask = df['min_amount'].notna() | df['max_amount'].notna()
             jobs_with_salary = salary_mask.sum()
             
+            # Debug: Log salary data stats
+            self.logger.debug(f"Salary data analysis for {task.center.name}:")
+            self.logger.debug(f"  - Total jobs: {len(df)}")
+            self.logger.debug(f"  - Jobs with min_amount: {df['min_amount'].notna().sum()}")
+            self.logger.debug(f"  - Jobs with max_amount: {df['max_amount'].notna().sum()}")
+            self.logger.debug(f"  - Jobs with any salary: {jobs_with_salary}")
+            if len(df) > 0:
+                self.logger.debug(f"  - Salary coverage: {jobs_with_salary/len(df)*100:.1f}%")
+            
             # Add location and role metadata to dataframe
             df['search_location'] = task.center.name
             df['search_zip'] = task.center.zip_code
@@ -199,6 +209,13 @@ class BatchExecutor:
             df['role_id'] = task.role.id
             df['role_name'] = task.role.name
             df['role_pay_type'] = task.role.pay_type.value
+            
+            # Save raw data for debugging (if output_dir is set)
+            if self.output_dir:
+                import os
+                raw_file = os.path.join(self.output_dir, f"raw_jobs_{task.center.code}_{task.role.id}.csv")
+                df.to_csv(raw_file, index=False)
+                self.logger.debug(f"Saved raw job data to {raw_file}")
             
             self.logger.success(
                 task.center.name,
