@@ -138,6 +138,7 @@ echo -e "${BLUE}============================================================${NC
 # Extract market configuration using Python
 echo -e "\n${YELLOW}Extracting market configuration...${NC}"
 
+source venv/bin/activate
 python3 -c "
 import yaml
 import sys
@@ -207,7 +208,7 @@ echo -e "\n${YELLOW}Starting market analysis...${NC}"
 echo -e "${BLUE}------------------------------------------------------------${NC}"
 
 # Build command
-CMD="source venv/bin/activate && python -m jobx.market_analysis.cli \"$TEMP_CONFIG\""
+CMD="python -m jobx.market_analysis.cli \"$TEMP_CONFIG\""
 CMD="$CMD --min-sample $MIN_SAMPLE"
 
 if [ -n "$VISUALIZE" ]; then

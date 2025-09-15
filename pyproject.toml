@@ -31,6 +31,7 @@ dependencies = [
     "tidyname>=0.1.0",
     "pyyaml>=6.0.0",
     "scipy>=1.11.0",
+    "matplotlib>=3.10.6",
 ]
 
 # Extra (optional) dependency groups

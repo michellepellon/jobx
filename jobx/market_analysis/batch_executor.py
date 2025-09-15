@@ -190,7 +190,37 @@ class BatchExecutor:
                     market_name=task.market_name,
                     region_name=task.region_name
                 )
-            
+
+            # Apply title filtering for BCBA roles
+            if task.role.id == 'bcba' or 'bcba' in task.role.name.lower():
+                original_title_count = len(df)
+
+                # Define excluded title keywords (case-insensitive)
+                excluded_keywords = [
+                    'teacher', 'specialist', 'technician', 'tech',
+                    'nurse', 'rn', 'therapist'
+                ]
+
+                # Create a mask for jobs to keep (those that don't contain excluded keywords)
+                title_mask = ~df['title'].str.lower().str.contains(
+                    '|'.join(excluded_keywords),
+                    case=False,
+                    na=False,
+                    regex=True
+                )
+
+                # Apply the filter
+                df = df[title_mask].copy()
+
+                # Log filtering results
+                excluded_count = original_title_count - len(df)
+                if excluded_count > 0:
+                    self.logger.info(
+                        f"Title filtering for BCBA role at {task.center.name}: "
+                        f"excluded {excluded_count} jobs with unwanted titles "
+                        f"({excluded_count/original_title_count*100:.1f}% filtered)"
+                    )
+
             # Apply location filtering to remove remote/distant jobs
             original_count = len(df)
             if len(df) > 0:

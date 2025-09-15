@@ -237,8 +237,8 @@ Examples:
         else:
             report_title = "Multi-Role Market Analysis"
         
-        # ReportGenerator expects 3 args: output_dir, job_title, logger
-        report_gen = ReportGenerator(output_dir, report_title, logger)
+        # ReportGenerator expects 4 args: output_dir, job_title, logger, location_results
+        report_gen = ReportGenerator(output_dir, report_title, logger, market_results)
         generated_files = report_gen.generate_all_reports(aggregated_markets)
         
         # Generate visualizations if requested

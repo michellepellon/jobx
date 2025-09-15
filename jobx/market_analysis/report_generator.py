@@ -9,27 +9,78 @@ import pandas as pd
 from jobx.market_analysis.data_aggregator import MarketData
 from jobx.market_analysis.statistics_calculator import StatisticsCalculator, CompensationStatistics
 from jobx.market_analysis.logger import MarketAnalysisLogger
+from jobx.market_analysis.batch_executor import LocationResult
 
 
 class ReportGenerator:
     """Generates CSV reports for market analysis."""
     
-    def __init__(self, output_dir: Path, job_title: str, logger: MarketAnalysisLogger):
+    def __init__(self, output_dir: Path, job_title: str, logger: MarketAnalysisLogger,
+                 location_results: Optional[Dict[str, List[LocationResult]]] = None):
         """Initialize report generator.
-        
+
         Args:
             output_dir: Directory for output files
             job_title: Job title being analyzed
             logger: Logger instance
+            location_results: Optional location results for center-level analysis
         """
         self.output_dir = output_dir
         self.job_title = job_title
         self.logger = logger
         self.stats_calculator = StatisticsCalculator()
-        
+        self.location_results = location_results or {}
+
         # Create output directory if it doesn't exist
         self.output_dir.mkdir(parents=True, exist_ok=True)
     
+    def calculate_center_statistics(self, market_name: str) -> Dict[str, CompensationStatistics]:
+        """Calculate statistics for each center within a market.
+
+        Args:
+            market_name: Name of the market
+
+        Returns:
+            Dictionary mapping center names to their statistics
+        """
+        center_stats = {}
+
+        if market_name not in self.location_results:
+            return center_stats
+
+        # Group location results by center
+        center_data = {}
+        for location_result in self.location_results[market_name]:
+            if location_result.success and location_result.jobs_df is not None:
+                center_name = location_result.center.name
+                if center_name not in center_data:
+                    center_data[center_name] = []
+                center_data[center_name].append(location_result.jobs_df)
+
+        # Calculate statistics for each center
+        from jobx.market_analysis.data_aggregator import DataAggregator
+        aggregator = DataAggregator(None, self.logger, min_sample_size=10)
+
+        for center_name, job_dfs in center_data.items():
+            if job_dfs:
+                # Combine all job data for this center
+                combined_df = pd.concat(job_dfs, ignore_index=True)
+
+                # Remove duplicates
+                if 'job_url' in combined_df.columns:
+                    combined_df = combined_df.drop_duplicates(subset=['job_url'])
+
+                # Extract salary data
+                salary_df = aggregator.extract_salary_data(combined_df)
+
+                if not salary_df.empty:
+                    # Calculate statistics
+                    stats = self.stats_calculator.calculate_statistics(salary_df)
+                    if stats:
+                        center_stats[center_name] = stats
+
+        return center_stats
+
     def generate_market_report(self, market_name: str, market_data: MarketData) -> Optional[Path]:
         """Generate CSV report for a single market.
         
@@ -109,43 +160,43 @@ class ReportGenerator:
     
     def generate_summary_report(self, all_markets: Dict[str, MarketData]) -> Path:
         """Generate summary report across all markets.
-        
+
         Args:
             all_markets: Dictionary of all market data
-            
+
         Returns:
             Path to generated summary file
         """
         filepath = self.output_dir / "summary_all_markets.csv"
-        
+
         # Calculate statistics for each market
         market_stats = {}
         for market_name, market_data in all_markets.items():
             stats = self.stats_calculator.calculate_statistics(market_data.salary_data)
             if stats:
                 market_stats[market_name] = stats
-        
+
         # Create comparison DataFrame
         comparison_df = self.stats_calculator.calculate_market_comparison(market_stats)
-        
+
         # Prepare summary data
         summary_data = []
-        
+
         # Header section
         summary_data.append(['Market Analysis Summary Report'])
         summary_data.append(['Generated', datetime.now().strftime('%Y-%m-%d %H:%M:%S')])
         summary_data.append(['Job Title', self.job_title])
         summary_data.append(['Total Markets', len(all_markets)])
-        summary_data.append(['Markets with Sufficient Data', 
+        summary_data.append(['Markets with Sufficient Data',
                            sum(1 for m in all_markets.values() if m.has_sufficient_data)])
         summary_data.append([])
-        
+
         # Overall statistics
         total_locations = sum(m.total_locations for m in all_markets.values())
         successful_locations = sum(m.successful_locations for m in all_markets.values())
         total_jobs = sum(m.total_jobs for m in all_markets.values())
         jobs_with_salary = sum(m.jobs_with_salary for m in all_markets.values())
-        
+
         summary_data.append(['Overall Statistics'])
         summary_data.append(['Total Locations Searched', total_locations])
         summary_data.append(['Successful Location Searches', successful_locations])
@@ -157,17 +208,17 @@ class ReportGenerator:
         summary_data.append(['Jobs with Salary Data', jobs_with_salary])
         summary_data.append(['Salary Data Rate', f'{(jobs_with_salary/total_jobs)*100:.1f}%' if total_jobs > 0 else 'N/A'])
         summary_data.append([])
-        
+
         # Market comparison table
         summary_data.append(['Market Comparison'])
         summary_data.append([])
-        
+
         # Add comparison data if available
         if not comparison_df.empty:
             # Add headers
             headers = comparison_df.columns.tolist()
             summary_data.append(headers)
-            
+
             # Add data rows
             for _, row in comparison_df.iterrows():
                 row_data = []
@@ -184,13 +235,13 @@ class ReportGenerator:
                 summary_data.append(row_data)
         else:
             summary_data.append(['No markets with sufficient data for comparison'])
-        
+
         summary_data.append([])
-        
+
         # Market details
         summary_data.append(['Market Details'])
         summary_data.append(['Market', 'Locations', 'Successful', 'Jobs', 'With Salary', 'Sufficient Data'])
-        
+
         for market_name, market_data in all_markets.items():
             summary_data.append([
                 market_name,
@@ -200,12 +251,39 @@ class ReportGenerator:
                 market_data.jobs_with_salary,
                 'Yes' if market_data.has_sufficient_data else 'No'
             ])
-        
+
+        summary_data.append([])
+
+        # Center-level statistics for each market
+        summary_data.append(['Center-Level Statistics by Market'])
+        summary_data.append([])
+
+        for market_name in all_markets.keys():
+            center_stats = self.calculate_center_statistics(market_name)
+
+            if center_stats:
+                summary_data.append([f'Market: {market_name}'])
+                summary_data.append(['Center', 'Sample Size', 'Mean', 'Median', 'P25', 'P75', 'P90', 'Std Dev'])
+
+                for center_name, stats in sorted(center_stats.items()):
+                    summary_data.append([
+                        center_name,
+                        stats.sample_size,
+                        f'${stats.mean:,.0f}',
+                        f'${stats.median:,.0f}',
+                        f'${stats.p25:,.0f}',
+                        f'${stats.p75:,.0f}',
+                        f'${stats.p90:,.0f}',
+                        f'${stats.std_dev:,.0f}'
+                    ])
+
+                summary_data.append([])
+
         # Write to CSV
         with open(filepath, 'w', newline='') as f:
             writer = csv.writer(f)
             writer.writerows(summary_data)
-        
+
         self.logger.info(f"Generated summary report: {filepath}")
         return filepath
     
