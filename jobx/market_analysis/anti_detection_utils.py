@@ -5,6 +5,7 @@ Provides scheduling, monitoring, and safety features.
 
 import json
 import random
+import threading
 import time
 from pathlib import Path
 from datetime import datetime, time as datetime_time, timedelta
@@ -232,87 +233,193 @@ Search Statistics:
 
 
 class SafetyManager:
-    """Manages safety features like breaks, region rotation, and progress tracking."""
-    
+    """Manages safety features like breaks, region rotation, and progress tracking.
+
+    Tracks progress at the task level (center_code:role_id) and supports
+    resuming from checkpoints after crashes or interruptions.
+    """
+
+    SCHEMA_VERSION = 2
+
     def __init__(self, output_dir: str = "."):
         self.output_dir = Path(output_dir)
         self.progress_file = self.output_dir / "search_progress.yaml"
+        self._lock = threading.Lock()
         self.load_progress()
-    
+
     def load_progress(self):
-        """Load search progress."""
+        """Load search progress, migrating from v1 if needed."""
         if self.progress_file.exists():
             with open(self.progress_file, 'r') as f:
-                self.progress = yaml.safe_load(f) or {}
+                raw = yaml.safe_load(f) or {}
+
+            if raw.get("schema_version", 1) < self.SCHEMA_VERSION:
+                self.progress = self._migrate_v1(raw)
+                self.save_progress()
+            else:
+                self.progress = raw
         else:
-            self.progress = {
-                "completed_regions": [],
-                "completed_centers": [],
-                "last_search_time": None,
-                "total_runtime_minutes": 0
-            }
-    
+            self.progress = self._new_progress()
+
+    @classmethod
+    def _new_progress(cls) -> dict:
+        return {
+            "schema_version": cls.SCHEMA_VERSION,
+            "started_at": datetime.now().isoformat(),
+            "last_checkpoint_at": None,
+            "total_tasks": 0,
+            "completed_tasks": {},
+            "failed_tasks": {},
+            "completed_regions": [],
+            "completed_centers": [],
+            "last_search_time": None,
+            "total_runtime_minutes": 0,
+        }
+
+    @staticmethod
+    def _migrate_v1(raw: dict) -> dict:
+        """Migrate v1 checkpoint (center-level) to v2 (task-level)."""
+        progress = SafetyManager._new_progress()
+        progress["completed_regions"] = raw.get("completed_regions", [])
+        progress["completed_centers"] = raw.get("completed_centers", [])
+        progress["last_search_time"] = raw.get("last_search_time")
+        progress["total_runtime_minutes"] = raw.get("total_runtime_minutes", 0)
+        # v1 had no per-task data; completed_centers entries are preserved
+        # but we can't reconstruct task-level info without role context
+        return progress
+
+    @staticmethod
+    def _task_key(center_code: str, role_id: str) -> str:
+        return f"{center_code}:{role_id}"
+
     def save_progress(self):
-        """Save search progress."""
-        with open(self.progress_file, 'w') as f:
+        """Save search progress atomically."""
+        tmp = self.progress_file.with_suffix('.yaml.tmp')
+        with open(tmp, 'w') as f:
             yaml.dump(self.progress, f, default_flow_style=False)
-    
+        tmp.replace(self.progress_file)
+
+    # ── Task-level checkpoint methods ──────────────────────────
+
+    def mark_task_complete(self, center_code: str, role_id: str,
+                           jobs_found: int, jobs_with_salary: int,
+                           csv_file: str):
+        """Record a successfully completed task."""
+        key = self._task_key(center_code, role_id)
+        with self._lock:
+            self.progress["completed_tasks"][key] = {
+                "status": "success",
+                "jobs_found": jobs_found,
+                "jobs_with_salary": jobs_with_salary,
+                "csv_file": csv_file,
+                "completed_at": datetime.now().isoformat(),
+            }
+            # Remove from failed if it was there (retry succeeded)
+            self.progress["failed_tasks"].pop(key, None)
+            self.progress["last_checkpoint_at"] = datetime.now().isoformat()
+            self.save_progress()
+
+    def mark_task_failed(self, center_code: str, role_id: str,
+                         error: str, attempts: int):
+        """Record a task that exhausted all retries."""
+        key = self._task_key(center_code, role_id)
+        with self._lock:
+            self.progress["failed_tasks"][key] = {
+                "error": str(error),
+                "attempts": attempts,
+                "last_attempt_at": datetime.now().isoformat(),
+            }
+            self.progress["last_checkpoint_at"] = datetime.now().isoformat()
+            self.save_progress()
+
+    def is_task_done(self, center_code: str, role_id: str) -> bool:
+        """True if the task already succeeded or exhausted retries."""
+        key = self._task_key(center_code, role_id)
+        return (key in self.progress.get("completed_tasks", {})
+                or key in self.progress.get("failed_tasks", {}))
+
+    def get_completed_task_csv(self, center_code: str, role_id: str) -> Optional[str]:
+        """Return the CSV path for a completed task, or None."""
+        key = self._task_key(center_code, role_id)
+        entry = self.progress.get("completed_tasks", {}).get(key)
+        if entry:
+            return entry.get("csv_file")
+        return None
+
+    def set_total_tasks(self, count: int):
+        """Record the total number of tasks for progress display."""
+        with self._lock:
+            self.progress["total_tasks"] = count
+            self.save_progress()
+
+    def get_progress_summary(self) -> dict:
+        """Return a summary of checkpoint progress."""
+        completed = len(self.progress.get("completed_tasks", {}))
+        failed = len(self.progress.get("failed_tasks", {}))
+        total = self.progress.get("total_tasks", 0)
+        return {
+            "total": total,
+            "completed": completed,
+            "failed": failed,
+            "remaining": max(0, total - completed - failed),
+        }
+
+    # ── Legacy center/region methods (backward compat) ─────────
+
     def mark_region_complete(self, region_name: str):
         """Mark a region as complete."""
-        if region_name not in self.progress["completed_regions"]:
-            self.progress["completed_regions"].append(region_name)
-        self.progress["last_search_time"] = datetime.now().isoformat()
-        self.save_progress()
-    
+        with self._lock:
+            if region_name not in self.progress["completed_regions"]:
+                self.progress["completed_regions"].append(region_name)
+            self.progress["last_search_time"] = datetime.now().isoformat()
+            self.save_progress()
+
     def mark_center_complete(self, center_code: str):
         """Mark a center as complete."""
-        if center_code not in self.progress["completed_centers"]:
-            self.progress["completed_centers"].append(center_code)
-        self.save_progress()
-    
+        with self._lock:
+            if center_code not in self.progress["completed_centers"]:
+                self.progress["completed_centers"].append(center_code)
+            self.save_progress()
+
     def is_region_complete(self, region_name: str) -> bool:
         """Check if region is already complete."""
         return region_name in self.progress.get("completed_regions", [])
-    
+
     def is_center_complete(self, center_code: str) -> bool:
         """Check if center is already complete."""
         return center_code in self.progress.get("completed_centers", [])
-    
+
     def should_take_break(self) -> Tuple[bool, float]:
         """Check if we should take a break."""
         if not self.progress.get("last_search_time"):
             return False, 0
-        
+
         try:
             last_search = datetime.fromisoformat(self.progress["last_search_time"])
             time_since = (datetime.now() - last_search).total_seconds()
-            
+
             # If we've been running for more than 30 minutes, suggest a break
             if time_since < 1800:  # Less than 30 minutes
                 return False, 0
-            
+
             # Random break between 5-15 minutes
             break_minutes = random.uniform(5, 15)
             return True, break_minutes
         except:
             return False, 0
-    
+
     def get_randomized_centers(self, centers: List) -> List:
         """Get randomized list of centers, excluding completed ones."""
         # Filter out completed centers
-        remaining = [c for c in centers 
+        remaining = [c for c in centers
                     if not self.is_center_complete(getattr(c, 'code', str(c)))]
-        
+
         # Randomize order
         random.shuffle(remaining)
         return remaining
-    
+
     def reset_progress(self):
         """Reset all progress tracking."""
-        self.progress = {
-            "completed_regions": [],
-            "completed_centers": [],
-            "last_search_time": None,
-            "total_runtime_minutes": 0
-        }
-        self.save_progress()
+        with self._lock:
+            self.progress = self._new_progress()
+            self.save_progress()

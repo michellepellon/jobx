@@ -4,6 +4,9 @@ This module handles concurrent execution of job searches across multiple locatio
 and roles, with proper rate limiting and error handling.
 """
 
+import os
+import random
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -58,21 +61,24 @@ class RoleSearchTask:
 class BatchExecutor:
     """Executes job searches in batches with concurrency control."""
     
-    def __init__(self, config: Config, logger: MarketAnalysisLogger, 
-                 output_dir: str = ".", enable_safety: bool = True):
+    def __init__(self, config: Config, logger: MarketAnalysisLogger,
+                 output_dir: str = ".", enable_safety: bool = True,
+                 max_retries: int = 3):
         """Initialize batch executor with anti-detection features.
-        
+
         Args:
             config: Configuration with locations and settings
             logger: Logger instance
             output_dir: Output directory for monitoring files
             enable_safety: Enable anti-detection safety features
+            max_retries: Max retry attempts per task on transient failure
         """
         self.config = config
         self.logger = logger
         self.output_dir = output_dir
         self.enable_safety = enable_safety
-        
+        self.max_retries = max_retries
+
         # Initialize anti-detection components
         if self.enable_safety:
             self.scheduler = SmartScheduler()
@@ -83,6 +89,8 @@ class BatchExecutor:
             self.monitor = None
             self.safety = None
         self.results: List[LocationResult] = []
+        self._shutdown_event = threading.Event()
+        self.shutdown_requested = False
     
     def search_location(self, task: RoleSearchTask) -> LocationResult:
         """Search jobs for a specific role at a specific location.
@@ -130,7 +138,6 @@ class BatchExecutor:
                 time.sleep(delay)
             
             # Randomly select 4-6 search terms to use for this location
-            import random
             if len(task.role.search_terms) >= 4:
                 num_terms = random.randint(4, min(6, len(task.role.search_terms)))
                 selected_terms = random.sample(task.role.search_terms, num_terms)
@@ -268,7 +275,6 @@ class BatchExecutor:
             
             # Save raw data for debugging (if output_dir is set)
             if self.output_dir:
-                import os
                 raw_file = os.path.join(self.output_dir, f"raw_jobs_{task.center.code}_{task.role.id}.csv")
                 df.to_csv(raw_file, index=False)
                 self.logger.debug(f"Saved raw job data to {raw_file}")
@@ -326,118 +332,262 @@ class BatchExecutor:
                 region_name=task.region_name
             )
     
+    def _retry_search(self, task: RoleSearchTask,
+                      base_backoff: float = 30.0) -> LocationResult:
+        """Search with automatic retries and exponential backoff.
+
+        Does NOT retry "No jobs found" errors (data condition, not transient).
+        """
+        last_result: Optional[LocationResult] = None
+        for attempt in range(1, self.max_retries + 1):
+            result = self.search_location(task)
+            last_result = result
+
+            if result.success:
+                return result
+
+            # "No jobs found" is not a transient failure — don't retry
+            if result.error and "No jobs found" in result.error:
+                return result
+
+            if attempt < self.max_retries:
+                delay = base_backoff * (2 ** (attempt - 1)) + random.uniform(0, 10)
+                self.logger.warning(
+                    f"Attempt {attempt}/{self.max_retries} failed for "
+                    f"{task.center.code}:{task.role.id} — "
+                    f"retrying in {delay:.0f}s: {result.error}"
+                )
+                time.sleep(delay)
+
+        self.logger.error(
+            f"All {self.max_retries} attempts exhausted for "
+            f"{task.center.code}:{task.role.id}: {last_result.error}"
+        )
+        return last_result
+
+    def _checkpoint_result(self, task: RoleSearchTask, result: LocationResult):
+        """Persist a task result to the checkpoint file."""
+        if not self.safety:
+            return
+
+        if result.success:
+            csv_file = os.path.join(
+                self.output_dir,
+                f"raw_jobs_{task.center.code}_{task.role.id}.csv",
+            )
+            self.safety.mark_task_complete(
+                task.center.code, task.role.id,
+                result.jobs_found, result.jobs_with_salary, csv_file,
+            )
+        else:
+            self.safety.mark_task_failed(
+                task.center.code, task.role.id,
+                result.error or "Unknown error", self.max_retries,
+            )
+
+    def request_shutdown(self):
+        """Request a graceful shutdown. In-flight tasks finish, no new batches start."""
+        self._shutdown_event.set()
+        self.shutdown_requested = True
+
     def execute_batch(self, tasks: List[RoleSearchTask]) -> List[LocationResult]:
         """Execute a batch of searches concurrently.
-        
+
         Args:
             tasks: List of search tasks to execute
-            
+
         Returns:
             List of results from all searches
         """
         results = []
-        
-        # Add random delay between location searches
-        import random
-        
+
         with ThreadPoolExecutor(max_workers=self.config.search.batch_size) as executor:
             future_to_task = {
-                executor.submit(self.search_location, task): task
+                executor.submit(self._retry_search, task): task
                 for task in tasks
             }
-            
+
             for future in as_completed(future_to_task):
-                result = future.result()
+                task = future_to_task[future]
+                try:
+                    result = future.result()
+                except Exception as e:
+                    result = LocationResult(
+                        center=task.center,
+                        role=task.role,
+                        success=False,
+                        error=f"Uncaught exception: {e}",
+                        market_name=task.market_name,
+                        region_name=task.region_name,
+                    )
                 results.append(result)
                 self.results.append(result)
-                
+                self._checkpoint_result(task, result)
+
                 # Small delay between completions to avoid rate limiting
                 time.sleep(0.5)
-        
+
         return results
     
-    def execute_all(self) -> Dict[str, List[LocationResult]]:
+    def _build_all_tasks(self) -> List[RoleSearchTask]:
+        """Build the full list of search tasks from config.
+
+        Randomizes ordering when safety features are enabled.
+        """
+        all_tasks: List[RoleSearchTask] = []
+
+        regions = list(self.config.regions)
+        if self.safety:
+            random.shuffle(regions)
+            self.logger.info("Randomized region order for anti-detection")
+
+        for region in regions:
+            markets = list(region.markets)
+            if self.safety:
+                random.shuffle(markets)
+
+            for market in markets:
+                if self.safety:
+                    centers = self.safety.get_randomized_centers(market.centers)
+                else:
+                    centers = market.centers
+
+                for center in centers:
+                    roles = list(self.config.roles)
+                    if self.safety:
+                        random.shuffle(roles)
+
+                    for role in roles:
+                        center_payband = center.get_payband(role.id) if hasattr(center, 'get_payband') else None
+                        market_payband = market.get_payband(role.id)
+
+                        if center_payband or market_payband:
+                            task = RoleSearchTask(
+                                role=role,
+                                center=center,
+                                market_name=market.name,
+                                region_name=region.name,
+                            )
+                            all_tasks.append(task)
+
+        return all_tasks
+
+    def _reload_completed_tasks(self, all_tasks: List[RoleSearchTask]) -> List[LocationResult]:
+        """Reload results from a previous checkpoint's CSVs.
+
+        Returns LocationResult objects for tasks that completed previously.
+        Tasks whose CSV is missing are silently skipped (they'll re-run).
+        """
+        reloaded: List[LocationResult] = []
+        if not self.safety:
+            return reloaded
+
+        for task in all_tasks:
+            csv_path = self.safety.get_completed_task_csv(task.center.code, task.role.id)
+            if csv_path is None:
+                continue
+
+            full_path = os.path.join(self.output_dir, os.path.basename(csv_path))
+            if not os.path.exists(full_path):
+                self.logger.warning(
+                    f"CSV missing for {task.center.code}:{task.role.id} "
+                    f"({full_path}) — task will re-run"
+                )
+                # Remove stale entry so the task is re-executed
+                key = self.safety._task_key(task.center.code, task.role.id)
+                self.safety.progress["completed_tasks"].pop(key, None)
+                continue
+
+            try:
+                df = pd.read_csv(full_path)
+                salary_mask = df['min_amount'].notna() | df['max_amount'].notna()
+                reloaded.append(LocationResult(
+                    center=task.center,
+                    role=task.role,
+                    success=True,
+                    jobs_df=df,
+                    jobs_found=len(df),
+                    jobs_with_salary=int(salary_mask.sum()),
+                    market_name=task.market_name,
+                    region_name=task.region_name,
+                ))
+            except Exception as e:
+                self.logger.warning(
+                    f"Failed to reload CSV for {task.center.code}:{task.role.id}: {e}"
+                )
+
+        return reloaded
+
+    def execute_all(self, resume: bool = False) -> Dict[str, List[LocationResult]]:
         """Execute all searches for all roles and locations.
-        
+
+        Args:
+            resume: If True, reload completed tasks from checkpoint and skip them.
+
         Returns:
             Dictionary mapping market names to their results
         """
         # Check if good time to search (when using safety features)
         if self.scheduler:
             self.scheduler.wait_for_good_time(self.logger)
-        
-        # Build list of all search tasks
-        all_tasks = []
-        
-        # Randomize regions if using safety features
-        regions = list(self.config.regions)
+
+        all_tasks = self._build_all_tasks()
+
         if self.safety:
-            import random
-            random.shuffle(regions)
-            self.logger.info("Randomized region order for anti-detection")
-        
-        for region in regions:
-            # Randomize markets within region
-            markets = list(region.markets)
-            if self.safety:
-                random.shuffle(markets)
-            
-            for market in markets:
-                # Get randomized centers if using safety features
-                if self.safety:
-                    centers = self.safety.get_randomized_centers(market.centers)
-                else:
-                    centers = market.centers
-                
-                for center in centers:
-                    # Randomize roles for each center
-                    roles = list(self.config.roles)
-                    if self.safety:
-                        random.shuffle(roles)
-                    
-                    for role in roles:
-                        # Check if center has payband for this role
-                        center_payband = center.get_payband(role.id) if hasattr(center, 'get_payband') else None
-                        # Fall back to market payband if center doesn't have one
-                        market_payband = market.get_payband(role.id)
-                        
-                        # Only search if either center or market has payband for this role
-                        if center_payband or market_payband:
-                            task = RoleSearchTask(
-                                role=role,
-                                center=center,
-                                market_name=market.name,
-                                region_name=region.name
-                            )
-                            all_tasks.append(task)
-        
-        self.logger.info(f"Total search tasks: {len(all_tasks)}")
-        self.logger.info(
-            f"Centers: {len(self.config.all_centers)}, "
-            f"Roles: {len(self.config.roles)}"
-        )
-        
-        # Execute in batches
+            self.safety.set_total_tasks(len(all_tasks))
+
+        # Resume: reload previous results and filter out done tasks
+        if resume and self.safety:
+            reloaded = self._reload_completed_tasks(all_tasks)
+            if reloaded:
+                self.results.extend(reloaded)
+                self.logger.info(f"Resumed {len(reloaded)} tasks from checkpoint")
+
+            remaining_tasks = [
+                t for t in all_tasks
+                if not self.safety.is_task_done(t.center.code, t.role.id)
+            ]
+            self.logger.info(
+                f"Total tasks: {len(all_tasks)}, "
+                f"already done: {len(all_tasks) - len(remaining_tasks)}, "
+                f"remaining: {len(remaining_tasks)}"
+            )
+            all_tasks = remaining_tasks
+
+            if not all_tasks:
+                self.logger.info("All tasks already completed — nothing to do")
+        else:
+            self.logger.info(f"Total search tasks: {len(all_tasks)}")
+            self.logger.info(
+                f"Centers: {len(self.config.all_centers)}, "
+                f"Roles: {len(self.config.roles)}"
+            )
+
+        # Execute in batches (with shutdown support)
         batch_size = self.config.search.batch_size
         for i in range(0, len(all_tasks), batch_size):
+            if self._shutdown_event.is_set():
+                self.logger.warning("Shutdown requested — stopping after current batch")
+                break
+
             batch = all_tasks[i:i + batch_size]
             self.logger.info(
                 f"Executing batch {i // batch_size + 1} of "
                 f"{(len(all_tasks) + batch_size - 1) // batch_size}"
             )
             self.execute_batch(batch)
-            
+
             # Delay between batches
             if i + batch_size < len(all_tasks):
                 time.sleep(2)
-        
+
         # Group results by market
         market_results: Dict[str, List[LocationResult]] = {}
         for result in self.results:
             if result.market_name not in market_results:
                 market_results[result.market_name] = []
             market_results[result.market_name].append(result)
-        
+
         return market_results
     
     def execute_for_role(self, role_id: str) -> Dict[str, List[LocationResult]]:

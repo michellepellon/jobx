@@ -2,10 +2,17 @@
 """Command-line interface for jobx market analysis tool with role-based support."""
 
 import argparse
+import signal
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
+
+# Exit codes
+EXIT_SUCCESS = 0       # All tasks completed successfully
+EXIT_FAILURE = 1       # No tasks succeeded or config error
+EXIT_PARTIAL = 2       # Some tasks succeeded, some failed
+EXIT_INTERRUPTED = 130 # SIGTERM/SIGINT, progress checkpointed
 
 from jobx.market_analysis.batch_executor import BatchExecutor
 from jobx.market_analysis.config_loader import Config, load_config, validate_config
@@ -94,7 +101,20 @@ Examples:
         action="store_true",
         help="Disable all anti-detection safety features (not recommended)",
     )
-    
+
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume from checkpoint in existing output directory",
+    )
+
+    parser.add_argument(
+        "--max-retries",
+        type=int,
+        default=3,
+        help="Max retry attempts per task on transient failure (default: 3)",
+    )
+
     args = parser.parse_args()
     
     # Handle migration
@@ -213,15 +233,27 @@ Examples:
         elif args.no_safety:
             print("⚠️  Warning: Anti-detection safety features disabled")
         
-        executor = BatchExecutor(config, logger, output_dir=str(output_dir), enable_safety=enable_safety)
-        
+        executor = BatchExecutor(
+            config, logger, output_dir=str(output_dir),
+            enable_safety=enable_safety, max_retries=args.max_retries,
+        )
+
+        # Register signal handlers for graceful shutdown
+        def _handle_signal(signum, frame):
+            sig_name = signal.Signals(signum).name
+            print(f"\n{sig_name} received — finishing in-flight tasks and checkpointing...")
+            executor.request_shutdown()
+
+        signal.signal(signal.SIGTERM, _handle_signal)
+        signal.signal(signal.SIGINT, _handle_signal)
+
         if args.role:
             # Search for specific role
             market_results = executor.execute_for_role(args.role)
             exec_stats = executor.get_role_stats(args.role)
         else:
             # Search for all roles
-            market_results = executor.execute_all()
+            market_results = executor.execute_all(resume=args.resume)
             exec_stats = executor.get_summary_stats()
         
         # Aggregate data by market
@@ -337,26 +369,36 @@ Examples:
                                     f"(band: ${role_data.payband.min:,.0f}-${role_data.payband.max:,.0f})"
                                 )
         
-        return 0
-        
+        # Determine exit code
+        if executor.shutdown_requested:
+            print("\nProgress checkpointed. Resume with --resume flag.")
+            return EXIT_INTERRUPTED
+        total = exec_stats.get('total_tasks', 0)
+        successful = exec_stats.get('successful_tasks', 0)
+        if total == 0 or successful == 0:
+            return EXIT_FAILURE
+        if successful < total:
+            return EXIT_PARTIAL
+        return EXIT_SUCCESS
+
     except FileNotFoundError as e:
         print(f"Error: {e}")
-        return 1
-        
+        return EXIT_FAILURE
+
     except ValueError as e:
         print(f"Configuration error: {e}")
-        return 1
-        
+        return EXIT_FAILURE
+
     except KeyboardInterrupt:
         print("\n\nAnalysis interrupted by user")
-        return 130
+        return EXIT_INTERRUPTED
         
     except Exception as e:
         print(f"Unexpected error: {e}")
         if args.verbose:
             import traceback
             traceback.print_exc()
-        return 1
+        return EXIT_FAILURE
 
 
 if __name__ == "__main__":
