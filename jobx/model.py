@@ -108,6 +108,7 @@ class Location(BaseModel):
     country: Union[Country, str, None] = None
     city: Optional[str] = None
     state: Optional[str] = None
+    postal_code: Optional[str] = None
 
     def display_location(self) -> str:
         """Format location for display."""

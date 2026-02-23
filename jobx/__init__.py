@@ -23,6 +23,7 @@ from jobx.linkedin import LinkedIn
 from jobx.model import Country, JobResponse, Location, SalarySource, ScraperInput, Site
 from jobx.scoring import calculate_confidence_score
 from jobx.util import (
+    column_renames,
     convert_to_annual,
     create_logger,
     desired_order,
@@ -153,9 +154,9 @@ def scrape_jobs(
                 ", ".join(job_data["emails"]) if job_data["emails"] else None
             )
             if job_data["location"]:
-                job_data["location"] = Location(
-                    **job_data["location"]
-                ).display_location()
+                loc = Location(**job_data["location"])
+                job_data["postal_code"] = loc.postal_code
+                job_data["location"] = loc.display_location()
 
             # Handle compensation
             compensation_obj = job_data.get("compensation")
@@ -220,9 +221,12 @@ def scrape_jobs(
         # Reorder the DataFrame according to the desired order
         jobs_df = jobs_df[desired_order]
 
-        # Step 4: Sort the DataFrame by confidence score (descending), then by site and date
+        # Step 4: Rename columns for output
+        jobs_df = jobs_df.rename(columns=column_renames)
+
+        # Step 5: Sort the DataFrame by confidence score (descending), then by source and date
         return jobs_df.sort_values(
-            by=["confidence_score", "site", "date_posted"], ascending=[False, True, False]
+            by=["confidence_score", "source_job_board", "date_posted"], ascending=[False, True, False]
         ).reset_index(drop=True)
     else:
         return pd.DataFrame()

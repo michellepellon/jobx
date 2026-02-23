@@ -295,6 +295,7 @@ class Indeed(Scraper):
                 city=job.get("location", {}).get("city"),
                 state=job.get("location", {}).get("admin1Code"),
                 country=job.get("location", {}).get("countryCode"),
+                postal_code=job.get("location", {}).get("postalCode"),
             ),
             job_type=job_type,
             compensation=get_compensation(job["compensation"]),
