@@ -16,11 +16,41 @@ roles:
     name: "Board Certified Behavioral Analyst"
     pay_type: "salary"
     default_unit: "USD/year"
+    excluded_title_keywords:
+      - teacher
+      - specialist
+      - technician
+      - tech
+      - nurse
+      - rn
+      - therapist
 
 search:
-  radius_miles: 25  
+  radius_miles: 25
   results_per_location: 200
   batch_size: 5
+  # site_names: ["linkedin", "indeed"]
+  # country_indeed: "usa"
+  # min_search_terms: 4
+  # max_search_terms: 6
+  # inter_search_delay_min: 3.0
+  # inter_search_delay_max: 8.0
+  # delay_between_completions: 0.5
+  # delay_between_batches: 2.0
+  # max_retries: 3
+  # retry_backoff_base: 30.0
+  # min_sample_size: 100
+
+# salary_filter:
+#   hourly_rate_threshold: 500.0
+#   iqr_multiplier: 1.5
+#   min_data_points_for_iqr: 4
+#   hourly_salary_min: 31000.0
+#   hourly_salary_max: 125000.0
+#   salary_min: 40000.0
+#   salary_max: 300000.0
+#   default_salary_min: 20000.0
+#   default_salary_max: 500000.0
 
 regions:
   - name: "Central"

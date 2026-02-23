@@ -157,17 +157,18 @@ class MarketData:
 class DataAggregator:
     """Aggregates location results by market and role."""
     
-    def __init__(self, config: Config, logger: MarketAnalysisLogger, min_sample_size: int = 100):
+    def __init__(self, config: Config, logger: MarketAnalysisLogger,
+                 min_sample_size: Optional[int] = None):
         """Initialize data aggregator.
-        
+
         Args:
             config: Configuration with role and market definitions
             logger: Logger instance
-            min_sample_size: Minimum jobs with salary for sufficient data
+            min_sample_size: Minimum jobs with salary for sufficient data (default: from config)
         """
         self.config = config
         self.logger = logger
-        self.min_sample_size = min_sample_size
+        self.min_sample_size = min_sample_size if min_sample_size is not None else config.search.min_sample_size
         self.stats_calc = StatisticsCalculator()
     
     def extract_salary_data(self, df: pd.DataFrame, role: Optional[Role] = None) -> pd.DataFrame:
@@ -253,7 +254,7 @@ class DataAggregator:
         # If role specified and hourly, ensure hourly rates are annualized
         if role and role.pay_type == PayType.HOURLY:
             # Ensure any remaining hourly rates are converted
-            hourly_mask = df['salary'] < 500  # Likely hourly if under $500
+            hourly_mask = df['salary'] < self.config.salary_filter.hourly_rate_threshold
             if hourly_mask.any():
                 df.loc[hourly_mask, 'salary'] *= 2080
         
@@ -301,43 +302,39 @@ class DataAggregator:
             pay_type=template.pay_type
         )
     
-    def _remove_outliers(self, df: pd.DataFrame, role: Optional[Role] = None, 
-                        iqr_multiplier: float = 1.5) -> pd.DataFrame:
+    def _remove_outliers(self, df: pd.DataFrame, role: Optional[Role] = None) -> pd.DataFrame:
         """Remove salary outliers using IQR method.
-        
+
         Args:
             df: DataFrame with salary data
             role: Optional role for context-specific bounds
-            iqr_multiplier: Multiplier for IQR to determine outliers
-            
+
         Returns:
             DataFrame with outliers removed
         """
-        if len(df) < 4:  # Need at least 4 points for IQR
+        sf = self.config.salary_filter
+        if len(df) < sf.min_data_points_for_iqr:
             return df
-        
+
         q1 = df['salary'].quantile(0.25)
         q3 = df['salary'].quantile(0.75)
         iqr = q3 - q1
-        
-        lower_bound = q1 - (iqr_multiplier * iqr)
-        upper_bound = q3 + (iqr_multiplier * iqr)
-        
+
+        lower_bound = q1 - (sf.iqr_multiplier * iqr)
+        upper_bound = q3 + (sf.iqr_multiplier * iqr)
+
         # Adjust bounds based on role if provided
         if role:
             if role.pay_type == PayType.HOURLY:
-                # Hourly roles typically $15-60/hour ($31k-125k/year)
-                lower_bound = max(lower_bound, 31000)
-                upper_bound = min(upper_bound, 125000)
+                lower_bound = max(lower_bound, sf.hourly_salary_min)
+                upper_bound = min(upper_bound, sf.hourly_salary_max)
             else:
-                # Salary roles typically $40k-300k/year
-                lower_bound = max(lower_bound, 40000)
-                upper_bound = min(upper_bound, 300000)
+                lower_bound = max(lower_bound, sf.salary_min)
+                upper_bound = min(upper_bound, sf.salary_max)
         else:
-            # Default reasonable bounds
-            lower_bound = max(lower_bound, 20000)
-            upper_bound = min(upper_bound, 500000)
-        
+            lower_bound = max(lower_bound, sf.default_salary_min)
+            upper_bound = min(upper_bound, sf.default_salary_max)
+
         return df[(df['salary'] >= lower_bound) & (df['salary'] <= upper_bound)]
     
     def aggregate_role_market(self, market: Market, role: Role, 

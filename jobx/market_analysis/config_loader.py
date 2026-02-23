@@ -39,6 +39,7 @@ class Role:
     pay_type: PayType
     default_unit: str
     search_terms: List[str] = field(default_factory=list)
+    excluded_title_keywords: List[str] = field(default_factory=list)
     
     def __post_init__(self):
         """Validate and convert pay_type to enum."""
@@ -179,11 +180,36 @@ class Region:
 
 
 @dataclass
+class SalaryFilterConfig:
+    """Salary filtering and outlier detection parameters."""
+    hourly_rate_threshold: float = 500.0
+    iqr_multiplier: float = 1.5
+    min_data_points_for_iqr: int = 4
+    hourly_salary_min: float = 31000.0
+    hourly_salary_max: float = 125000.0
+    salary_min: float = 40000.0
+    salary_max: float = 300000.0
+    default_salary_min: float = 20000.0
+    default_salary_max: float = 500000.0
+
+
+@dataclass
 class SearchConfig:
     """Search configuration parameters."""
     radius_miles: int = 25
     results_per_location: int = 200
     batch_size: int = 5
+    site_names: List[str] = field(default_factory=lambda: ["linkedin", "indeed"])
+    country_indeed: str = "usa"
+    min_search_terms: int = 4
+    max_search_terms: int = 6
+    inter_search_delay_min: float = 3.0
+    inter_search_delay_max: float = 8.0
+    delay_between_completions: float = 0.5
+    delay_between_batches: float = 2.0
+    max_retries: int = 3
+    retry_backoff_base: float = 30.0
+    min_sample_size: int = 100
 
 
 @dataclass
@@ -193,7 +219,8 @@ class Config:
     roles: List[Role]
     search: SearchConfig
     regions: List[Region]
-    
+    salary_filter: SalaryFilterConfig = field(default_factory=SalaryFilterConfig)
+
     # Backward compatibility fields (deprecated)
     job_title: Optional[str] = None  # Deprecated: use roles instead
     search_radius: Optional[int] = None  # Deprecated: use search.radius_miles
@@ -279,7 +306,30 @@ class Config:
         
         if self.search.batch_size > 10:
             warnings.append(f"Large batch_size ({self.search.batch_size}) may trigger rate limiting")
-        
+
+        if self.search.min_search_terms > self.search.max_search_terms:
+            warnings.append(
+                f"min_search_terms ({self.search.min_search_terms}) > "
+                f"max_search_terms ({self.search.max_search_terms})"
+            )
+
+        if self.search.inter_search_delay_min > self.search.inter_search_delay_max:
+            warnings.append(
+                f"inter_search_delay_min ({self.search.inter_search_delay_min}) > "
+                f"inter_search_delay_max ({self.search.inter_search_delay_max})"
+            )
+
+        sf = self.salary_filter
+        if sf.hourly_salary_min >= sf.hourly_salary_max:
+            warnings.append(
+                f"hourly_salary_min ({sf.hourly_salary_min}) >= "
+                f"hourly_salary_max ({sf.hourly_salary_max})"
+            )
+        if sf.salary_min >= sf.salary_max:
+            warnings.append(
+                f"salary_min ({sf.salary_min}) >= salary_max ({sf.salary_max})"
+            )
+
         # Check for duplicate center codes
         center_codes = [center.code for center in self.all_centers]
         if len(center_codes) != len(set(center_codes)):
@@ -409,19 +459,55 @@ def _load_new_config(data: Dict[str, Any]) -> Config:
             name=role_data['name'],
             pay_type=role_data['pay_type'],
             default_unit=role_data.get('default_unit', ''),
-            search_terms=search_terms
+            search_terms=search_terms,
+            excluded_title_keywords=role_data.get('excluded_title_keywords', []),
         )
         roles.append(role)
     
     if not roles:
         raise ValueError("Configuration must define at least one role")
-    
+
+    # Backward compat: auto-populate excluded_title_keywords for BCBA roles
+    for role in roles:
+        if not role.excluded_title_keywords and (
+            role.id == 'bcba' or 'bcba' in role.name.lower()
+        ):
+            role.excluded_title_keywords = [
+                'teacher', 'specialist', 'technician', 'tech',
+                'nurse', 'rn', 'therapist',
+            ]
+
     # Parse search config
     search_data = data.get('search', {})
     search = SearchConfig(
         radius_miles=search_data.get('radius_miles', 25),
         results_per_location=search_data.get('results_per_location', 200),
-        batch_size=search_data.get('batch_size', 5)
+        batch_size=search_data.get('batch_size', 5),
+        site_names=search_data.get('site_names', ["linkedin", "indeed"]),
+        country_indeed=search_data.get('country_indeed', "usa"),
+        min_search_terms=search_data.get('min_search_terms', 4),
+        max_search_terms=search_data.get('max_search_terms', 6),
+        inter_search_delay_min=search_data.get('inter_search_delay_min', 3.0),
+        inter_search_delay_max=search_data.get('inter_search_delay_max', 8.0),
+        delay_between_completions=search_data.get('delay_between_completions', 0.5),
+        delay_between_batches=search_data.get('delay_between_batches', 2.0),
+        max_retries=search_data.get('max_retries', 3),
+        retry_backoff_base=search_data.get('retry_backoff_base', 30.0),
+        min_sample_size=search_data.get('min_sample_size', 100),
+    )
+
+    # Parse salary filter config
+    sf_data = data.get('salary_filter', {})
+    salary_filter = SalaryFilterConfig(
+        hourly_rate_threshold=sf_data.get('hourly_rate_threshold', 500.0),
+        iqr_multiplier=sf_data.get('iqr_multiplier', 1.5),
+        min_data_points_for_iqr=sf_data.get('min_data_points_for_iqr', 4),
+        hourly_salary_min=sf_data.get('hourly_salary_min', 31000.0),
+        hourly_salary_max=sf_data.get('hourly_salary_max', 125000.0),
+        salary_min=sf_data.get('salary_min', 40000.0),
+        salary_max=sf_data.get('salary_max', 300000.0),
+        default_salary_min=sf_data.get('default_salary_min', 20000.0),
+        default_salary_max=sf_data.get('default_salary_max', 500000.0),
     )
     
     # Parse regions
@@ -483,7 +569,8 @@ def _load_new_config(data: Dict[str, Any]) -> Config:
         meta=meta,
         roles=roles,
         search=search,
-        regions=regions
+        regions=regions,
+        salary_filter=salary_filter,
     )
     
     # Validate

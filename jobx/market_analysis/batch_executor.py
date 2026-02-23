@@ -63,7 +63,7 @@ class BatchExecutor:
     
     def __init__(self, config: Config, logger: MarketAnalysisLogger,
                  output_dir: str = ".", enable_safety: bool = True,
-                 max_retries: int = 3):
+                 max_retries: Optional[int] = None):
         """Initialize batch executor with anti-detection features.
 
         Args:
@@ -71,13 +71,13 @@ class BatchExecutor:
             logger: Logger instance
             output_dir: Output directory for monitoring files
             enable_safety: Enable anti-detection safety features
-            max_retries: Max retry attempts per task on transient failure
+            max_retries: Max retry attempts per task (default: from config)
         """
         self.config = config
         self.logger = logger
         self.output_dir = output_dir
         self.enable_safety = enable_safety
-        self.max_retries = max_retries
+        self.max_retries = max_retries if max_retries is not None else config.search.max_retries
 
         # Initialize anti-detection components
         if self.enable_safety:
@@ -137,12 +137,14 @@ class BatchExecutor:
                 delay = self.scheduler.get_human_like_delay()
                 time.sleep(delay)
             
-            # Randomly select 4-6 search terms to use for this location
-            if len(task.role.search_terms) >= 4:
-                num_terms = random.randint(4, min(6, len(task.role.search_terms)))
+            # Randomly select search terms to use for this location
+            min_terms = self.config.search.min_search_terms
+            max_terms = self.config.search.max_search_terms
+            if len(task.role.search_terms) >= min_terms:
+                num_terms = random.randint(min_terms, min(max_terms, len(task.role.search_terms)))
                 selected_terms = random.sample(task.role.search_terms, num_terms)
             else:
-                # Use all available search terms if less than 4
+                # Use all available search terms if fewer than min_search_terms
                 selected_terms = task.role.search_terms
                 num_terms = len(selected_terms)
             
@@ -156,17 +158,20 @@ class BatchExecutor:
                 try:
                     # Add random delay between searches to avoid rate limiting
                     if i > 0:
-                        delay = random.uniform(3, 8)  # Random delay between 3-8 seconds
+                        delay = random.uniform(
+                            self.config.search.inter_search_delay_min,
+                            self.config.search.inter_search_delay_max,
+                        )
                         time.sleep(delay)
                     
                     df_term = scrape_jobs(
-                        site_name=["linkedin", "indeed"],
+                        site_name=self.config.search.site_names,
                         search_term=search_term,
                         location=task.center.search_location,
                         distance=self.config.search.radius_miles,
                         results_wanted=self.config.search.results_per_location,
                         is_remote=False,  # Only include jobs within the specified radius
-                        country_indeed="usa",
+                        country_indeed=self.config.search.country_indeed,
                         linkedin_fetch_description=True,  # CRITICAL: Fetch full job details from LinkedIn
                         verbose=0  # Suppress jobx output
                     )
@@ -198,32 +203,22 @@ class BatchExecutor:
                     region_name=task.region_name
                 )
 
-            # Apply title filtering for BCBA roles
-            if task.role.id == 'bcba' or 'bcba' in task.role.name.lower():
+            # Apply title keyword filtering if configured for this role
+            if task.role.excluded_title_keywords:
                 original_title_count = len(df)
 
-                # Define excluded title keywords (case-insensitive)
-                excluded_keywords = [
-                    'teacher', 'specialist', 'technician', 'tech',
-                    'nurse', 'rn', 'therapist'
-                ]
-
-                # Create a mask for jobs to keep (those that don't contain excluded keywords)
                 title_mask = ~df['title'].str.lower().str.contains(
-                    '|'.join(excluded_keywords),
+                    '|'.join(task.role.excluded_title_keywords),
                     case=False,
                     na=False,
-                    regex=True
+                    regex=True,
                 )
-
-                # Apply the filter
                 df = df[title_mask].copy()
 
-                # Log filtering results
                 excluded_count = original_title_count - len(df)
                 if excluded_count > 0:
                     self.logger.info(
-                        f"Title filtering for BCBA role at {task.center.name}: "
+                        f"Title filtering for {task.role.name} at {task.center.name}: "
                         f"excluded {excluded_count} jobs with unwanted titles "
                         f"({excluded_count/original_title_count*100:.1f}% filtered)"
                     )
@@ -333,11 +328,13 @@ class BatchExecutor:
             )
     
     def _retry_search(self, task: RoleSearchTask,
-                      base_backoff: float = 30.0) -> LocationResult:
+                      base_backoff: Optional[float] = None) -> LocationResult:
         """Search with automatic retries and exponential backoff.
 
         Does NOT retry "No jobs found" errors (data condition, not transient).
         """
+        if base_backoff is None:
+            base_backoff = self.config.search.retry_backoff_base
         last_result: Optional[LocationResult] = None
         for attempt in range(1, self.max_retries + 1):
             result = self.search_location(task)
@@ -425,7 +422,7 @@ class BatchExecutor:
                 self._checkpoint_result(task, result)
 
                 # Small delay between completions to avoid rate limiting
-                time.sleep(0.5)
+                time.sleep(self.config.search.delay_between_completions)
 
         return results
     
@@ -579,7 +576,7 @@ class BatchExecutor:
 
             # Delay between batches
             if i + batch_size < len(all_tasks):
-                time.sleep(2)
+                time.sleep(self.config.search.delay_between_batches)
 
         # Group results by market
         market_results: Dict[str, List[LocationResult]] = {}
@@ -629,8 +626,8 @@ class BatchExecutor:
             
             # Delay between batches
             if i + batch_size < len(tasks):
-                time.sleep(2)
-        
+                time.sleep(self.config.search.delay_between_batches)
+
         # Group results by market
         market_results: Dict[str, List[LocationResult]] = {}
         for result in self.results:

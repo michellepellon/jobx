@@ -63,8 +63,8 @@ Examples:
     parser.add_argument(
         "--min-sample",
         type=int,
-        default=100,
-        help="Minimum sample size for sufficient data (default: 100)",
+        default=None,
+        help="Minimum sample size for sufficient data (default: from config, typically 100)",
     )
     
     parser.add_argument(
@@ -111,8 +111,8 @@ Examples:
     parser.add_argument(
         "--max-retries",
         type=int,
-        default=3,
-        help="Max retry attempts per task on transient failure (default: 3)",
+        default=None,
+        help="Max retry attempts per task on transient failure (default: from config, typically 3)",
     )
 
     args = parser.parse_args()
