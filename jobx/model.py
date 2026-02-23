@@ -12,8 +12,9 @@ from abc import ABC, abstractmethod
 from datetime import date
 from enum import Enum
 from typing import List, Optional, Union
+from uuid import uuid4
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class JobType(Enum):
@@ -165,6 +166,7 @@ class DescriptionFormat(Enum):
 
 class JobPost(BaseModel):
     """Represents a job posting with all relevant information."""
+    uuid: str = Field(default_factory=lambda: str(uuid4()))
     id: Optional[str] = None
     title: str
     company_name: Optional[str]

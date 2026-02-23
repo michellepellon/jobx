@@ -647,6 +647,7 @@ def convert_to_annual(job_data: dict[str, Any]) -> None:
 
 
 desired_order = [
+    "uuid",
     "id",
     "site",
     "job_url",
