@@ -8,22 +8,71 @@ import os
 import random
 import threading
 import time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from enum import Enum
+from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
 from jobx import scrape_jobs
-from jobx.market_analysis.config_loader import Center, Config, Location, Role
-from jobx.market_analysis.logger import MarketAnalysisLogger
 from jobx.market_analysis.anti_detection_utils import (
-    SmartScheduler, SearchMonitor, SafetyManager
+    SafetyManager,
+    SearchMonitor,
+    SmartScheduler,
 )
+from jobx.market_analysis.config_loader import Center, Config, Location, Role
 from jobx.market_analysis.location_filter import (
     LocationFilter,
-    filter_jobs_by_location
+    filter_jobs_by_location,
 )
+from jobx.market_analysis.logger import MarketAnalysisLogger
+
+
+class ErrorCategory(str, Enum):
+    """Classification of search errors for operational triage."""
+
+    NETWORK = "network"
+    RATE_LIMIT = "rate_limit"
+    NO_DATA = "no_data"
+    PARSE_ERROR = "parse_error"
+    AUTH_BLOCK = "auth_block"
+    UNKNOWN = "unknown"
+
+
+def classify_error(error_str: str) -> ErrorCategory:
+    """Classify an error message into an operational category.
+
+    Uses keyword matching on the lowercased error string.  The order of checks
+    matters — more specific categories are tested before generic ones.
+    """
+    lower = error_str.lower()
+
+    # Rate limiting (check before network — a 429 is a network response)
+    if any(kw in lower for kw in ("429", "rate limit", "too many requests", "blocked", "throttl")):
+        return ErrorCategory.RATE_LIMIT
+
+    # Auth / access blocks
+    if any(kw in lower for kw in ("captcha", "403", "forbidden", "access denied", "challenge")):
+        return ErrorCategory.AUTH_BLOCK
+
+    # Network / connectivity
+    if any(kw in lower for kw in (
+        "timeout", "timed out", "connection", "proxy", "dns", "ssl",
+        "socket", "network", "unreachable", "reset by peer",
+    )):
+        return ErrorCategory.NETWORK
+
+    # Structural no-data
+    if any(kw in lower for kw in ("no jobs found", "no results", "empty")):
+        return ErrorCategory.NO_DATA
+
+    # Parse / data errors
+    if any(kw in lower for kw in ("valueerror", "parse", "json", "decode", "keyerror", "index")):
+        return ErrorCategory.PARSE_ERROR
+
+    return ErrorCategory.UNKNOWN
 
 
 @dataclass
@@ -38,6 +87,8 @@ class LocationResult:
     jobs_with_salary: int = 0
     market_name: str = ""
     region_name: str = ""
+    duration_seconds: Optional[float] = None
+    error_category: Optional[str] = None
     
     @property
     def location(self) -> Location:
@@ -94,13 +145,25 @@ class BatchExecutor:
     
     def search_location(self, task: RoleSearchTask) -> LocationResult:
         """Search jobs for a specific role at a specific location.
-        
+
+        Thin wrapper that delegates to ``_search_location_inner`` and attaches
+        wall-clock timing and error classification to the result.
+
         Args:
             task: Search task containing role and location details
-            
+
         Returns:
             LocationResult with search results or error
         """
+        t0 = time.monotonic()
+        result = self._search_location_inner(task)
+        result.duration_seconds = round(time.monotonic() - t0, 2)
+        if not result.success and result.error:
+            result.error_category = classify_error(result.error).value
+        return result
+
+    def _search_location_inner(self, task: RoleSearchTask) -> LocationResult:
+        """Core search logic — called by the timing wrapper above."""
         # Check if center already completed (when using safety features)
         if self.safety and self.safety.is_center_complete(task.center.code):
             self.logger.info(f"Skipping {task.center.name} - already completed")
@@ -694,6 +757,77 @@ class BatchExecutor:
             'jobs_with_salary': sum(r.jobs_with_salary for r in role_results),
             'success_rate': (successful / total * 100) if total > 0 else 0
         }
+
+    # ── Observability helpers ────────────────────────────────────
+
+    def get_timing_stats(self) -> Dict[str, Any]:
+        """Percentile statistics over per-task durations.
+
+        Returns:
+            Dict with keys ``p50``, ``p95``, ``max``, ``count``.
+            All values are ``0`` when no durations have been recorded.
+        """
+        durations = [r.duration_seconds for r in self.results if r.duration_seconds is not None]
+        if not durations:
+            return {"p50": 0, "p95": 0, "max": 0, "count": 0}
+        durations.sort()
+        n = len(durations)
+        return {
+            "p50": round(durations[int(n * 0.50)], 2),
+            "p95": round(durations[min(int(n * 0.95), n - 1)], 2),
+            "max": round(durations[-1], 2),
+            "count": n,
+        }
+
+    def get_error_summary(self) -> Dict[str, Any]:
+        """Summarise failures by category and top error messages.
+
+        Returns:
+            Dict with ``total_failures``, ``by_category``, and ``top_errors``.
+        """
+        failed = [r for r in self.results if not r.success]
+        if not failed:
+            return {"total_failures": 0, "by_category": {}, "top_errors": []}
+
+        # Count by category
+        by_category: Dict[str, int] = Counter()
+        error_counter: Counter[str] = Counter()
+        error_to_category: Dict[str, str] = {}
+        for r in failed:
+            cat = r.error_category or ErrorCategory.UNKNOWN.value
+            by_category[cat] += 1
+            msg = r.error or "Unknown error"
+            error_counter[msg] += 1
+            error_to_category[msg] = cat
+
+        top_errors = [
+            {"message": msg, "count": count, "category": error_to_category.get(msg, "unknown")}
+            for msg, count in error_counter.most_common(5)
+        ]
+
+        return {
+            "total_failures": len(failed),
+            "by_category": dict(by_category),
+            "top_errors": top_errors,
+        }
+
+    def get_slowest_searches(self, n: int = 5) -> List[Dict[str, Any]]:
+        """Return the *n* slowest searches by wall-clock duration.
+
+        Returns:
+            List of dicts with ``center``, ``role``, ``duration_seconds``, ``success``.
+        """
+        timed = [r for r in self.results if r.duration_seconds is not None]
+        timed.sort(key=lambda r: r.duration_seconds, reverse=True)  # type: ignore[arg-type]
+        return [
+            {
+                "center": r.center.code,
+                "role": r.role.id,
+                "duration_seconds": r.duration_seconds,
+                "success": r.success,
+            }
+            for r in timed[:n]
+        ]
 
 
 # Backward compatibility function

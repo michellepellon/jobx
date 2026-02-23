@@ -2,11 +2,13 @@
 """Command-line interface for jobx market analysis tool with role-based support."""
 
 import argparse
+import json
 import signal
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, Dict
 
 # Exit codes
 EXIT_SUCCESS = 0       # All tasks completed successfully
@@ -14,12 +16,183 @@ EXIT_FAILURE = 1       # No tasks succeeded or config error
 EXIT_PARTIAL = 2       # Some tasks succeeded, some failed
 EXIT_INTERRUPTED = 130 # SIGTERM/SIGINT, progress checkpointed
 
-from jobx.market_analysis.batch_executor import BatchExecutor
+from jobx.market_analysis.batch_executor import BatchExecutor, ErrorCategory
 from jobx.market_analysis.config_loader import Config, load_config, validate_config
 from jobx.market_analysis.data_aggregator import DataAggregator
 from jobx.market_analysis.logger import setup_logger
 from jobx.market_analysis.report_generator import ReportGenerator
 from jobx.market_analysis.visualization import CompensationBandVisualizer
+
+
+def _format_duration(seconds: float) -> str:
+    """Format seconds into a human-readable string like '2h 27m 33s'."""
+    h, remainder = divmod(int(seconds), 3600)
+    m, s = divmod(remainder, 60)
+    parts = []
+    if h:
+        parts.append(f"{h}h")
+    if m or h:
+        parts.append(f"{m}m")
+    parts.append(f"{s}s")
+    return " ".join(parts)
+
+
+def _generate_recommendation(
+    total: int,
+    failed: int,
+    error_summary: Dict[str, Any],
+    shutdown_requested: bool,
+) -> str:
+    """Generate a one-line operational recommendation based on run outcome."""
+    if shutdown_requested:
+        return "Run was interrupted. Resume with --resume flag."
+
+    if total == 0:
+        return "No tasks were executed. Check configuration."
+
+    if failed == 0:
+        return "All tasks succeeded. No re-run needed."
+
+    by_cat = error_summary.get("by_category", {})
+    failure_pct = (failed / total * 100) if total else 0
+
+    # All failures are structural no-data
+    if list(by_cat.keys()) == [ErrorCategory.NO_DATA.value]:
+        return (
+            f"{failed} failures ({failure_pct:.0f}%), all 'no_data' (structural). "
+            "Re-run will not help."
+        )
+
+    parts = []
+    if by_cat.get(ErrorCategory.RATE_LIMIT.value):
+        parts.append("Consider increasing delays or using --safe-mode.")
+
+    network_count = by_cat.get(ErrorCategory.NETWORK.value, 0)
+    if network_count > failed / 2:
+        parts.append("Majority network errors — check connectivity and retry with --resume.")
+
+    if failure_pct >= 30:
+        parts.append("High failure rate — investigate before re-running.")
+
+    if not parts:
+        parts.append(f"{failed} failures ({failure_pct:.1f}%). Review errors and consider --resume.")
+
+    return " ".join(parts)
+
+
+def _build_run_summary(
+    *,
+    start_time: float,
+    end_time: float,
+    config: Config,
+    config_file: str,
+    executor: BatchExecutor,
+    exec_stats: Dict[str, Any],
+    aggregated_markets: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Build the structured run summary dict written to ``run_summary.json``."""
+    duration = round(end_time - start_time, 1)
+    total = exec_stats.get("total_tasks", 0)
+    successful = exec_stats.get("successful_tasks", 0)
+    failed = total - successful
+    total_jobs = exec_stats.get("total_jobs", 0)
+    jobs_with_salary = exec_stats.get("jobs_with_salary", 0)
+
+    timing = executor.get_timing_stats()
+    error_summary = executor.get_error_summary()
+    slowest = executor.get_slowest_searches(5)
+
+    # Exit status
+    if executor.shutdown_requested:
+        exit_status = "interrupted"
+    elif total == 0 or successful == 0:
+        exit_status = "failure"
+    elif failed > 0:
+        exit_status = "partial"
+    else:
+        exit_status = "success"
+
+    markets_with_data = sum(1 for m in aggregated_markets.values() if m.has_sufficient_data)
+
+    # Per-role breakdown
+    per_role: Dict[str, Any] = {}
+    for role in config.roles:
+        role_stats = executor.get_role_stats(role.id)
+        role_results = [r for r in executor.results if r.role.id == role.id]
+        role_durations = [r.duration_seconds for r in role_results if r.duration_seconds is not None]
+        role_durations.sort()
+        n = len(role_durations)
+        per_role[role.id] = {
+            "tasks": role_stats["total_tasks"],
+            "successful": role_stats["successful_tasks"],
+            "failed": role_stats["total_tasks"] - role_stats["successful_tasks"],
+            "jobs_found": role_stats["total_jobs"],
+            "search_duration_p50_seconds": round(role_durations[int(n * 0.50)], 2) if n else 0,
+            "search_duration_p95_seconds": round(role_durations[min(int(n * 0.95), n - 1)], 2) if n else 0,
+        }
+
+    # Per-market breakdown
+    per_market: Dict[str, Any] = {}
+    for market_name, market_data in aggregated_markets.items():
+        market_results = [r for r in executor.results if r.market_name == market_name]
+        m_total = len(market_results)
+        m_success = sum(1 for r in market_results if r.success)
+        per_market[market_name] = {
+            "tasks": m_total,
+            "successful": m_success,
+            "failed": m_total - m_success,
+            "jobs_found": sum(r.jobs_found for r in market_results),
+            "with_sufficient_data": market_data.has_sufficient_data,
+        }
+
+    recommendation = _generate_recommendation(total, failed, error_summary, executor.shutdown_requested)
+
+    started_at = datetime.fromtimestamp(start_time, tz=timezone.utc).isoformat()
+    finished_at = datetime.fromtimestamp(end_time, tz=timezone.utc).isoformat()
+
+    return {
+        "schema_version": 1,
+        "run_started_at": started_at,
+        "run_finished_at": finished_at,
+        "duration_seconds": duration,
+        "duration_human": _format_duration(duration),
+        "exit_status": exit_status,
+        "shutdown_requested": executor.shutdown_requested,
+        "config_file": config_file,
+        "config_summary": {
+            "roles": [r.id for r in config.roles],
+            "regions": len(config.regions),
+            "markets": len(config.all_markets),
+            "centers": config.total_locations,
+            "search_radius_miles": config.search.radius_miles,
+            "batch_size": config.search.batch_size,
+        },
+        "tasks": {
+            "total": total,
+            "successful": successful,
+            "failed": failed,
+            "success_rate_pct": round(successful / total * 100, 1) if total else 0,
+        },
+        "jobs": {
+            "total_found": total_jobs,
+            "with_salary": jobs_with_salary,
+            "salary_rate_pct": round(jobs_with_salary / total_jobs * 100, 1) if total_jobs else 0,
+        },
+        "markets": {
+            "total": len(aggregated_markets),
+            "with_sufficient_data": markets_with_data,
+        },
+        "timing": {
+            "search_duration_p50_seconds": timing["p50"],
+            "search_duration_p95_seconds": timing["p95"],
+            "search_duration_max_seconds": timing["max"],
+            "slowest_searches": slowest,
+        },
+        "errors": error_summary,
+        "per_role": per_role,
+        "per_market": per_market,
+        "recommendation": recommendation,
+    }
 
 
 def main():
@@ -300,7 +473,7 @@ Examples:
                     logger.info(f"Generated role comparison: {comparison_file}")
         
         # Calculate execution time
-        elapsed_time = time.time() - start_time
+        elapsed_time = time.time() - start_time  # also used by run_summary via end_time
         
         # Log execution summary
         markets_with_data = sum(1 for m in aggregated_markets.values() if m.has_sufficient_data)
@@ -333,6 +506,21 @@ Examples:
             print("=" * 60)
             print(executor.monitor.get_summary())
         
+        # Write structured run summary
+        end_time = time.time()
+        run_summary = _build_run_summary(
+            start_time=start_time,
+            end_time=end_time,
+            config=config,
+            config_file=args.config,
+            executor=executor,
+            exec_stats=exec_stats,
+            aggregated_markets=aggregated_markets,
+        )
+        summary_path = output_dir / "run_summary.json"
+        summary_path.write_text(json.dumps(run_summary, indent=2))
+        logger.info(f"Run summary written to {summary_path}")
+
         # Print summary to console
         print("\n" + "=" * 60)
         print("ANALYSIS COMPLETE")
